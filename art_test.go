@@ -114,6 +114,32 @@ func Test_GrowWithPrefixValue(t *testing.T) {
 	}
 }
 
+func Test_KeyWithZeros(t *testing.T) {
+	// any arbitrary byte array should be a valid key, even those with embedded nulls.
+	a := new(Art)
+	k1 := []byte{0, 0, 0}
+	k2 := []byte{0, 0, 0, 0}
+	k3 := []byte{0, 0, 0, 1}
+	a.Insert(k1, "k1")
+	a.Insert(k2, "k2")
+	a.Insert(k3, "k3")
+	hasByteKey(t, a, k1, "k1")
+	hasByteKey(t, a, k2, "k2")
+	hasByteKey(t, a, k3, "k3")
+}
+
+func Test_EmptyKey(t *testing.T) {
+	// an empty byte array is also a valid key
+	a := new(Art)
+	a.Insert(nil, "n")
+	hasByteKey(t, a, nil, "n")
+	a.Insert([]byte{}, "b")
+	hasByteKey(t, a, []byte{}, "b")
+	a.Insert([]byte{0}, "0")
+	hasByteKey(t, a, []byte{0}, "0")
+	hasByteKey(t, a, []byte{}, "b")
+}
+
 func noStringKey(t *testing.T, a *Art, k string) {
 	t.Helper()
 	noByteKey(t, a, []byte(k))
