@@ -26,10 +26,30 @@ func (a *Art) Get(key []byte) (value interface{}, exists bool) {
 	return n.nodeValue()
 }
 
+type WalkState byte
+
+const (
+	Continue WalkState = iota
+	Stop
+)
+
+// ConsumerFn ...
+type ConsumerFn func(key []byte, value interface{}) WalkState
+
+// Walk will call the provided callback function with each key/value pair, in key order.
+// the callback return value can be used to continue or stop the walk
+func (a *Art) Walk(callback ConsumerFn) {
+	if a.root == nil {
+		return
+	}
+	a.root.walk(nil, callback)
+}
+
 type node interface {
 	insert(key []byte, value interface{}) node
 	get(key []byte) node
 	nodeValue() (value interface{}, exists bool)
+	walk(prefix []byte, callback ConsumerFn) WalkState
 }
 
 func newNode(key []byte, value interface{}) node {
@@ -120,6 +140,32 @@ func (n *node4) get(key []byte) node {
 	return nil
 }
 
+func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
+	val, exists := n.nodeValue()
+	if exists {
+		if cb(prefix, val) == Stop {
+			return Stop
+		}
+	}
+	done := byte(0)
+	for i := byte(0); i < n.childCount; i++ {
+		next := byte(255)
+		nextIdx := byte(255)
+		for j := byte(0); j < n.childCount; j++ {
+			k := n.key[j]
+			if k <= next && k >= done {
+				next = k
+				nextIdx = j
+			}
+		}
+		if n.children[nextIdx].walk(append(prefix, next), cb) == Stop {
+			return Stop
+		}
+		done = next + 1
+	}
+	return Continue
+}
+
 type node16 struct {
 	key      [16]byte
 	children [16]node
@@ -199,6 +245,32 @@ func (n *node16) get(key []byte) node {
 	return nil
 }
 
+func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
+	val, exists := n.nodeValue()
+	if exists {
+		if cb(prefix, val) == Stop {
+			return Stop
+		}
+	}
+	done := byte(0)
+	for i := byte(0); i < n.childCount; i++ {
+		next := byte(255)
+		nextIdx := byte(255)
+		for j := byte(0); j < n.childCount; j++ {
+			k := n.key[j]
+			if k <= next && k >= done {
+				next = k
+				nextIdx = j
+			}
+		}
+		if n.children[nextIdx].walk(append(prefix, next), cb) == Stop {
+			return Stop
+		}
+		done = next + 1
+	}
+	return Continue
+}
+
 type node48 struct {
 	key      [256]byte
 	children [48]node
@@ -271,6 +343,21 @@ func (n *node48) get(key []byte) node {
 	return n.children[idx-1].get(key[1:])
 }
 
+func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
+	v, exists := n.nodeValue()
+	if exists && cb(prefix, v) == Stop {
+		return Stop
+	}
+	for idx, slot := range n.key {
+		if slot > 0 {
+			if n.children[slot-1].walk(append(prefix, byte(idx)), cb) == Stop {
+				return Stop
+			}
+		}
+	}
+	return Continue
+}
+
 type node256 struct {
 	children [256]node
 	value    interface{}
@@ -329,6 +416,19 @@ func (n *node256) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
+func (n *node256) walk(prefix []byte, cb ConsumerFn) WalkState {
+	v, exists := n.nodeValue()
+	if exists && cb(prefix, v) == Stop {
+		return Stop
+	}
+	for idx, c := range n.children {
+		if c != nil && c.walk(append(prefix, byte(idx)), cb) == Stop {
+			return Stop
+		}
+	}
+	return Continue
+}
+
 type leaf struct {
 	header
 	value interface{}
@@ -356,4 +456,8 @@ func (l *leaf) get(key []byte) node {
 		return nil
 	}
 	return l
+}
+
+func (l *leaf) walk(prefix []byte, cb ConsumerFn) WalkState {
+	return cb(prefix, l.value)
 }
