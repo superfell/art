@@ -3,25 +3,31 @@ package art
 import (
 	"fmt"
 	"testing"
-
-	"github.com/bruth/assert"
-	"github.com/kr/pretty"
 )
 
 func Test_Empty(t *testing.T) {
 	a := new(Art)
-	notExists(t, a, "")
-	notExists(t, a, "bob")
+	noStringKey(t, a, "")
+	noStringKey(t, a, "bob")
+}
+
+func Test_OverwriteWithSameKey(t *testing.T) {
+	a := new(Art)
+	k := []byte("QWE")
+	a.Insert(k, "one")
+	hasStringKey(t, a, "QWE", "one")
+	a.Insert(k, "two")
+	hasStringKey(t, a, "QWE", "two")
 }
 
 func Test_InsertGet(t *testing.T) {
 	a := new(Art)
 	a.Insert([]byte("123"), "abc")
-	contains(t, a, "123", "abc")
-	notExists(t, a, "2")
-	notExists(t, a, "12")
-	notExists(t, a, "1234")
-	notExists(t, a, "")
+	hasStringKey(t, a, "123", "abc")
+	noStringKey(t, a, "2")
+	noStringKey(t, a, "12")
+	noStringKey(t, a, "1234")
+	noStringKey(t, a, "")
 }
 
 func Test_InsertOnLeaf(t *testing.T) {
@@ -29,8 +35,8 @@ func Test_InsertOnLeaf(t *testing.T) {
 	a.Insert([]byte("123"), "abc")
 	// now insert something that would add a child to the leaf above
 	a.Insert([]byte("1234"), "abcd")
-	contains(t, a, "123", "abc")
-	contains(t, a, "1234", "abcd")
+	hasStringKey(t, a, "123", "abc")
+	hasStringKey(t, a, "1234", "abcd")
 }
 
 func Test_MultipleInserts(t *testing.T) {
@@ -38,17 +44,17 @@ func Test_MultipleInserts(t *testing.T) {
 	a.Insert([]byte("123"), "abc")
 	a.Insert([]byte("456"), "abcd")
 	a.Insert([]byte("1211"), "abcde")
-	contains(t, a, "123", "abc")
-	contains(t, a, "456", "abcd")
-	contains(t, a, "1211", "abcde")
-	notExists(t, a, "")
-	notExists(t, a, "12")
-	notExists(t, a, "1234")
-	notExists(t, a, "5")
-	notExists(t, a, "451")
-	notExists(t, a, "4561")
-	notExists(t, a, "1212")
-	notExists(t, a, "121")
+	hasStringKey(t, a, "123", "abc")
+	hasStringKey(t, a, "456", "abcd")
+	hasStringKey(t, a, "1211", "abcde")
+	noStringKey(t, a, "")
+	noStringKey(t, a, "12")
+	noStringKey(t, a, "1234")
+	noStringKey(t, a, "5")
+	noStringKey(t, a, "451")
+	noStringKey(t, a, "4561")
+	noStringKey(t, a, "1212")
+	noStringKey(t, a, "121")
 }
 
 func Test_Grow4to16(t *testing.T) {
@@ -57,48 +63,85 @@ func Test_Grow4to16(t *testing.T) {
 	for i := byte(0); i < 10; i++ {
 		a.Insert(append(k, i), i)
 		for j := byte(0); j <= i; j++ {
-			v, exists := a.Get(append(k, j))
-			assert.True(t, exists, "expecting to find value for key", append(k, j))
-			assert.Equal(t, j, v)
+			hasByteKey(t, a, append(k, j), j)
 		}
 	}
 	a.Insert(append(k, 5, 10), 100)
-	v, exists := a.Get(append(k, 5, 10))
-	assert.True(t, exists, "expecting to find value for key", append(k, 5, 10))
-	assert.Equal(t, 100, v)
+	hasByteKey(t, a, append(k, 5, 10), 100)
 }
 
 func Test_GrowTo48(t *testing.T) {
 	a := new(Art)
 	k := []byte("12")
 	a.Insert(k, "12")
-	contains(t, a, "12", "12")
+	hasStringKey(t, a, "12", "12")
 	for i := byte(0); i < 30; i++ {
 		a.Insert(append(k, i+'A'), fmt.Sprintf("val_%d", i))
 		for j := byte(0); j <= i; j++ {
 			nk := append(k, j+'A')
-			v, exists := a.Get(nk)
-			assert.True(t, exists, "expecting to find value for key", nk)
-			assert.Equal(t, fmt.Sprintf("val_%d", j), v)
-			contains(t, a, "12", "12")
+			hasByteKey(t, a, nk, fmt.Sprintf("val_%d", j))
+			hasStringKey(t, a, "12", "12")
 		}
 	}
-	pretty.Print(a)
-	notExists(t, a, "12z")
-	notExists(t, a, "12Bzasd")
-	notExists(t, a, "12Bz")
+	noStringKey(t, a, "12z")
+	noStringKey(t, a, "12Bzasd")
+	noStringKey(t, a, "12Bz")
 }
 
-func notExists(t *testing.T, a *Art, k string) {
-	t.Helper()
-	act, exists := a.Get([]byte(k))
-	assert.False(t, exists, "key shouldn't have value", k, act)
-	assert.Nil(t, act)
+func Test_GrowTo256(t *testing.T) {
+	a := new(Art)
+	for i := 0; i < 256; i++ {
+		a.Insert([]byte{byte(i)}, i)
+	}
+	for i := 0; i < 256; i++ {
+		hasByteKey(t, a, []byte{byte(i)}, i)
+	}
 }
 
-func contains(t *testing.T, a *Art, k string, exp string) {
+func Test_GrowWithPrefixValue(t *testing.T) {
+	a := new(Art)
+	k := []byte("B")
+	a.Insert([]byte("BBB"), "kk")
+	a.Insert(k, "k")
+	for i := 0; i < 256; i++ {
+		ck := append(k, byte(i))
+		a.Insert(ck, i)
+		hasByteKey(t, a, k, "k")
+		hasStringKey(t, a, "BBB", "kk")
+		for j := 0; j < i; j++ {
+			hasByteKey(t, a, append(k, byte(j)), j)
+		}
+	}
+}
+
+func noStringKey(t *testing.T, a *Art, k string) {
+	t.Helper()
+	noByteKey(t, a, []byte(k))
+}
+
+func noByteKey(t *testing.T, a *Art, k []byte) {
+	t.Helper()
+	act, exists := a.Get(k)
+	if exists {
+		t.Errorf("Unexpected value of %#v exists for key %v", act, k)
+	}
+	if act != nil {
+		t.Errorf("Unexpected value of %#v exists for key %v", act, k)
+	}
+}
+
+func hasStringKey(t *testing.T, a *Art, k string, exp interface{}) {
+	t.Helper()
+	hasByteKey(t, a, []byte(k), exp)
+}
+
+func hasByteKey(t *testing.T, a *Art, k []byte, exp interface{}) {
 	t.Helper()
 	act, exists := a.Get([]byte(k))
-	assert.True(t, exists, "should contain key", k)
-	assert.Equal(t, exp, act)
+	if !exists {
+		t.Errorf("Should contain value for key %#v but does not", k)
+	}
+	if act != exp {
+		t.Errorf("Unexpected value of %#v for key %#v, expecting %#v", act, k, exp)
+	}
 }

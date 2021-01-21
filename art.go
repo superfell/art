@@ -246,7 +246,7 @@ func (n *node48) insert(key []byte, value interface{}) node {
 			return n
 		}
 	}
-	panic("need to grow to node256")
+	return newNode256(n).insert(key, value)
 }
 
 func (n *node48) nodeValue() (interface{}, bool) {
@@ -264,12 +264,65 @@ func (n *node48) get(key []byte) node {
 	if idx == 0 {
 		return nil
 	}
-	return n.children[idx-1]
+	return n.children[idx-1].get(key[1:])
 }
 
 type node256 struct {
 	children [256]node
+	value    interface{}
 	header
+}
+
+func newNode256(src *node48) node {
+	n := &node256{header: src.header}
+	if src.hasValue {
+		var exists bool
+		n.value, exists = src.children[47].nodeValue()
+		if !exists {
+			panic("error, src node48 said it had a value, but does not")
+		}
+	}
+	for i, k := range src.key {
+		if k > 0 {
+			n.children[i] = src.children[k-1]
+		}
+	}
+	return n
+}
+
+func (n *node256) insert(key []byte, value interface{}) node {
+	if len(key) == 0 {
+		n.value = value
+		return n
+	}
+	c := n.children[key[0]]
+	if c == nil {
+		n.children[key[0]] = newNode(key[1:], value)
+	} else {
+		n.children[key[0]] = c.insert(key[1:], value)
+	}
+	return n
+}
+
+func (n *node256) get(key []byte) node {
+	if len(key) == 0 {
+		if n.hasValue {
+			return n
+		}
+		return nil
+	}
+	c := n.children[key[0]]
+	if c == nil {
+		return nil
+	}
+	return c.get(key[1:])
+}
+
+func (n *node256) nodeValue() (interface{}, bool) {
+	if n.hasValue {
+		return n.value, true
+	}
+	return nil, false
 }
 
 type leaf struct {
