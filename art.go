@@ -54,6 +54,10 @@ type header struct {
 	hasValue bool
 }
 
+const n4ValueIdx = 3
+const n16ValueIdx = 15
+const n48ValueIdx = 47
+
 type node4 struct {
 	key      [4]byte
 	children [4]node
@@ -66,11 +70,11 @@ func (n *node4) insert(key []byte, value interface{}) node {
 		// is the prefix of some other path.
 		// if we already have a value, then just update it
 		if n.header.hasValue {
-			n.children[3].insert(key, value)
+			n.children[n4ValueIdx].insert(key, value)
 			return n
 		}
 		if n.header.childCount < 4 {
-			n.children[3] = newNode(key, value)
+			n.children[n4ValueIdx] = newNode(key, value)
 			n.header.hasValue = true
 			return n
 		}
@@ -99,7 +103,7 @@ func (n *node4) insert(key []byte, value interface{}) node {
 
 func (n *node4) nodeValue() (interface{}, bool) {
 	if n.hasValue {
-		return n.children[3].nodeValue()
+		return n.children[n4ValueIdx].nodeValue()
 	}
 	return nil, false
 }
@@ -134,7 +138,7 @@ func newNode16(src *node4) *node16 {
 		n.children[i] = src.children[i]
 	}
 	if src.hasValue {
-		n.children[15] = src.children[3]
+		n.children[n16ValueIdx] = src.children[n4ValueIdx]
 	}
 	return &n
 }
@@ -145,11 +149,11 @@ func (n *node16) insert(key []byte, value interface{}) node {
 		// is the prefix of some other path.
 		// if we already have a value, then just update it
 		if n.header.hasValue {
-			n.children[15].insert(key, value)
+			n.children[n16ValueIdx].insert(key, value)
 			return n
 		}
 		if n.header.childCount < 16 {
-			n.children[15] = newNode(key, value)
+			n.children[n16ValueIdx] = newNode(key, value)
 			n.header.hasValue = true
 			return n
 		}
@@ -178,7 +182,7 @@ func (n *node16) insert(key []byte, value interface{}) node {
 
 func (n *node16) nodeValue() (interface{}, bool) {
 	if n.hasValue {
-		return n.children[15].nodeValue()
+		return n.children[n16ValueIdx].nodeValue()
 	}
 	return nil, false
 }
@@ -204,7 +208,7 @@ type node48 struct {
 func newNode48(src *node16) node {
 	n := &node48{header: src.header}
 	if src.hasValue {
-		n.children[47] = src.children[15]
+		n.children[n48ValueIdx] = src.children[n16ValueIdx]
 	}
 	for i := byte(0); i < src.childCount; i++ {
 		n.key[src.key[i]] = i + 1
@@ -219,12 +223,12 @@ func (n *node48) insert(key []byte, value interface{}) node {
 		// is the prefix of some other path.
 		// if we already have a value, then just update it
 		if n.header.hasValue {
-			n.children[47].insert(key, value)
+			n.children[n48ValueIdx].insert(key, value)
 			return n
 		}
 		if n.header.childCount < 48 {
 			n.header.hasValue = true
-			n.children[47] = newNode(key, value)
+			n.children[n48ValueIdx] = newNode(key, value)
 			return n
 		}
 		// ugh, we're full, this'll drop through to the grow at the bottom
@@ -251,7 +255,7 @@ func (n *node48) insert(key []byte, value interface{}) node {
 
 func (n *node48) nodeValue() (interface{}, bool) {
 	if n.hasValue {
-		return n.children[47].nodeValue()
+		return n.children[n48ValueIdx].nodeValue()
 	}
 	return nil, false
 }
@@ -277,7 +281,7 @@ func newNode256(src *node48) node {
 	n := &node256{header: src.header}
 	if src.hasValue {
 		var exists bool
-		n.value, exists = src.children[47].nodeValue()
+		n.value, exists = src.children[n48ValueIdx].nodeValue()
 		if !exists {
 			panic("error, src node48 said it had a value, but does not")
 		}
