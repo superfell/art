@@ -6,7 +6,7 @@ type Art struct {
 }
 
 // Insert ....
-func (a *Art) Insert(key []byte, value []byte) {
+func (a *Art) Insert(key []byte, value interface{}) {
 	if a.root == nil {
 		a.root = newNode(key, value)
 	} else {
@@ -15,7 +15,7 @@ func (a *Art) Insert(key []byte, value []byte) {
 }
 
 // Get ...
-func (a *Art) Get(key []byte) (val []byte, exists bool) {
+func (a *Art) Get(key []byte) (value interface{}, exists bool) {
 	if a.root == nil {
 		return nil, false
 	}
@@ -26,7 +26,13 @@ func (a *Art) Get(key []byte) (val []byte, exists bool) {
 	return n.nodeValue()
 }
 
-func newNode(key []byte, value []byte) node {
+type node interface {
+	insert(key []byte, value interface{}) node
+	get(key []byte) node
+	nodeValue() (value interface{}, exists bool)
+}
+
+func newNode(key []byte, value interface{}) node {
 	if len(key) == 0 {
 		return &leaf{value: value}
 	}
@@ -35,12 +41,6 @@ func newNode(key []byte, value []byte) node {
 	n.key[0] = key[0]
 	n.children[0] = newNode(key[1:], value)
 	return n
-}
-
-type node interface {
-	insert(key []byte, value []byte) node
-	get(key []byte) node
-	nodeValue() (value []byte, exists bool)
 }
 
 type header struct {
@@ -60,7 +60,7 @@ type node4 struct {
 	header
 }
 
-func (n *node4) insert(key []byte, value []byte) node {
+func (n *node4) insert(key []byte, value interface{}) node {
 	if len(key) == 0 {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
@@ -97,7 +97,7 @@ func (n *node4) insert(key []byte, value []byte) node {
 	return newNode16(n).insert(key, value)
 }
 
-func (n *node4) nodeValue() ([]byte, bool) {
+func (n *node4) nodeValue() (interface{}, bool) {
 	if n.hasValue {
 		return n.children[3].nodeValue()
 	}
@@ -139,7 +139,7 @@ func newNode16(src *node4) *node16 {
 	return &n
 }
 
-func (n *node16) insert(key []byte, value []byte) node {
+func (n *node16) insert(key []byte, value interface{}) node {
 	if len(key) == 0 {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
@@ -176,7 +176,7 @@ func (n *node16) insert(key []byte, value []byte) node {
 	return newNode48(n).insert(key, value)
 }
 
-func (n *node16) nodeValue() ([]byte, bool) {
+func (n *node16) nodeValue() (interface{}, bool) {
 	if n.hasValue {
 		return n.children[15].nodeValue()
 	}
@@ -213,7 +213,7 @@ func newNode48(src *node16) node {
 	return n
 }
 
-func (n *node48) insert(key []byte, value []byte) node {
+func (n *node48) insert(key []byte, value interface{}) node {
 	if len(key) == 0 {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
@@ -249,7 +249,7 @@ func (n *node48) insert(key []byte, value []byte) node {
 	panic("need to grow to node256")
 }
 
-func (n *node48) nodeValue() ([]byte, bool) {
+func (n *node48) nodeValue() (interface{}, bool) {
 	if n.hasValue {
 		return n.children[47].nodeValue()
 	}
@@ -274,10 +274,10 @@ type node256 struct {
 
 type leaf struct {
 	header
-	value []byte
+	value interface{}
 }
 
-func (l *leaf) insert(key []byte, value []byte) node {
+func (l *leaf) insert(key []byte, value interface{}) node {
 	if len(key) > 0 {
 		// if there's a key, then we need to change this item to a node that contains this leaf as a value
 		// then pass the key down to that node
@@ -290,7 +290,7 @@ func (l *leaf) insert(key []byte, value []byte) node {
 	return l
 }
 
-func (l *leaf) nodeValue() ([]byte, bool) {
+func (l *leaf) nodeValue() (interface{}, bool) {
 	return l.value, true
 }
 
