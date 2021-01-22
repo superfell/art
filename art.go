@@ -1,6 +1,11 @@
 package art
 
-import "bytes"
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"io"
+)
 
 // Art ...
 type Art struct {
@@ -47,11 +52,23 @@ func (a *Art) Walk(callback ConsumerFn) {
 	a.root.walk(nil, callback)
 }
 
+// PrettyPrint ...
+func (a *Art) PrettyPrint(w io.Writer) {
+	if a.root == nil {
+		io.WriteString(w, "[empty]\n")
+		return
+	}
+	bw := bufio.NewWriter(w)
+	a.root.pretty(0, bw)
+	bw.Flush()
+}
+
 type node interface {
 	insert(key []byte, value interface{}) node
 	get(key []byte) node
 	nodeValue() (value interface{}, exists bool)
 	walk(prefix []byte, callback ConsumerFn) WalkState
+	pretty(indent int, dest *bufio.Writer)
 }
 
 func newNode(key []byte, value interface{}) node {
@@ -164,6 +181,21 @@ func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
+func (n *node4) pretty(indent int, w *bufio.Writer) {
+	w.WriteString("[n4] ")
+	if n.hasValue {
+		w.WriteString("value: ")
+		n.children[n4ValueIdx].pretty(indent, w)
+	} else {
+		w.WriteByte('\n')
+	}
+	for i := 0; i < int(n.childCount); i++ {
+		writeIndent(indent+2, w)
+		fmt.Fprintf(w, "0x%02X: ", n.key[i])
+		n.children[i].pretty(indent+8, w)
+	}
+}
+
 type node16 struct {
 	header
 	key      [16]byte
@@ -269,6 +301,21 @@ func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
+func (n *node16) pretty(indent int, w *bufio.Writer) {
+	w.WriteString("[n16] ")
+	if n.hasValue {
+		w.WriteString("value: ")
+		n.children[n16ValueIdx].pretty(indent, w)
+	} else {
+		w.WriteByte('\n')
+	}
+	for i := 0; i < int(n.childCount); i++ {
+		writeIndent(indent+2, w)
+		fmt.Fprintf(w, "0x%02X: ", n.key[i])
+		n.children[i].pretty(indent+8, w)
+	}
+}
+
 type node48 struct {
 	header
 	key      [256]byte
@@ -356,6 +403,23 @@ func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
+func (n *node48) pretty(indent int, w *bufio.Writer) {
+	w.WriteString("[n48] ")
+	if n.hasValue {
+		w.WriteString("value: ")
+		n.children[n48ValueIdx].pretty(indent, w)
+	} else {
+		w.WriteByte('\n')
+	}
+	for k, slot := range n.key {
+		if slot > 0 {
+			writeIndent(indent+2, w)
+			fmt.Fprintf(w, "0x%02X: ", k)
+			n.children[slot-1].pretty(indent+8, w)
+		}
+	}
+}
+
 type node256 struct {
 	children [256]node
 	value    interface{}
@@ -427,6 +491,21 @@ func (n *node256) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
+func (n *node256) pretty(indent int, w *bufio.Writer) {
+	w.WriteString("[n256] ")
+	if n.hasValue {
+		fmt.Fprintf(w, "value: %v", n.value)
+	}
+	w.WriteByte('\n')
+	for idx, c := range n.children {
+		if c != nil {
+			writeIndent(indent+2, w)
+			fmt.Fprintf(w, "0x%02X: ", idx)
+			c.pretty(indent+8, w)
+		}
+	}
+}
+
 type leaf struct {
 	value interface{}
 	path  []byte
@@ -464,4 +543,28 @@ func (l *leaf) get(key []byte) node {
 
 func (l *leaf) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return cb(append(prefix, l.path...), l.value)
+}
+
+func (l *leaf) pretty(indent int, w *bufio.Writer) {
+	w.WriteString("[leaf] ")
+	if len(l.path) > 0 {
+		w.WriteString(" [")
+		for i, k := range l.path {
+			if i > 0 {
+				w.WriteByte(' ')
+			}
+			fmt.Fprintf(w, "0x%02X", k)
+		}
+		w.WriteByte(']')
+	}
+	fmt.Fprintf(w, " value:%v\n", l.value)
+}
+
+var spaces = bytes.Repeat([]byte{' '}, 16)
+
+func writeIndent(indent int, w *bufio.Writer) {
+	if indent > len(spaces) {
+		spaces = append(spaces, bytes.Repeat([]byte{' '}, indent-len(spaces)+4)...)
+	}
+	w.Write(spaces[:indent])
 }
