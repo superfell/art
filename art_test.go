@@ -40,6 +40,16 @@ func Test_InsertOnLeaf(t *testing.T) {
 	hasStringKey(t, a, "1234", "abcd")
 }
 
+func Test_LeafPathToNToLeafPath(t *testing.T) {
+	a := new(Art)
+	k1 := []byte("123")
+	k2 := []byte("12345678")
+	a.Insert(k1, "1")
+	a.Insert(k2, "2")
+	hasStringKey(t, a, "123", "1")
+	hasStringKey(t, a, "12345678", "2")
+}
+
 func Test_MultipleInserts(t *testing.T) {
 	a := new(Art)
 	a.Insert([]byte("123"), "abc")
@@ -166,18 +176,18 @@ func Test_Walk(t *testing.T) {
 }
 
 func Test_MoreWalk(t *testing.T) {
-	sizes := []byte{2, 4, 5, 16, 17, 47, 48, 49, 50, 255}
+	sizes := []int{2, 4, 5, 16, 17, 47, 48, 49, 50, 120, 255, 256}
 	for _, sz := range sizes {
 		t.Run(fmt.Sprintf("Walk size %d", sz), func(t *testing.T) {
 			a := new(Art)
 			baseK := []byte{'A'}
-			for i := byte(0); i < sz; i++ {
-				a.Insert(append(baseK, i), i)
+			for i := 0; i < sz; i++ {
+				a.Insert(append(baseK, byte(i)), i)
 			}
 			t.Run("Full Walk", func(t *testing.T) {
-				i := byte(0)
+				i := 0
 				a.Walk(func(k []byte, v interface{}) WalkState {
-					exp := append(baseK, i)
+					exp := append(baseK, byte(i))
 					if !bytes.Equal(k, exp) {
 						t.Errorf("Expecting key %v, but got %v", exp, k)
 					}
@@ -192,7 +202,7 @@ func Test_MoreWalk(t *testing.T) {
 				}
 			})
 			t.Run("Early Stop", func(t *testing.T) {
-				i := byte(0)
+				i := 0
 				a.Walk(func(k []byte, v interface{}) WalkState {
 					i++
 					if i >= sz-1 {
@@ -205,8 +215,8 @@ func Test_MoreWalk(t *testing.T) {
 				}
 			})
 			t.Run("With NodeValues", func(t *testing.T) {
-				for i := byte(0); i < sz; i++ {
-					a.Insert(append(baseK, i, i), int(i)^2)
+				for i := 0; i < sz; i++ {
+					a.Insert(append(baseK, byte(i), byte(i)), i*i)
 				}
 				calls := 0
 				prevKey := make([]byte, 0, 5)
@@ -215,18 +225,19 @@ func Test_MoreWalk(t *testing.T) {
 					if bytes.Compare(prevKey, k) != -1 {
 						t.Errorf("Key %v received out of order, prevKey was %v", k, prevKey)
 					}
-					if len(k) == 2 && k[1] != v {
+					if len(k) == 2 && int(k[1]) != v {
 						t.Errorf("Unexpected value %v for key %v, was expecting %v", v, k, k[1])
 					}
 					if len(k) == 3 {
-						expV := int(k[2]) ^ 2
+						expV := int(k[2]) * int(k[2])
 						if expV != v {
 							t.Errorf("Unexpected value %v for key %v, was expecting %v", v, k, expV)
 						}
 					}
+					prevKey = append(prevKey[:0], k...)
 					return Continue
 				})
-				if calls != int(sz)*2 {
+				if calls != sz*2 {
 					t.Errorf("Unexpected number of callbacks %d, expecting %d", calls, sz*2)
 				}
 			})
