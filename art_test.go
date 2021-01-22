@@ -275,4 +275,13 @@ func hasByteKey(t *testing.T, a *Art, k []byte, exp interface{}) {
 	if act != exp {
 		t.Errorf("Unexpected value of %#v for key %#v, expecting %#v", act, k, exp)
 	}
+
+func expectStats(t *testing.T, a *Art, exp Stats) {
+	act := a.Stats()
+	if !reflect.DeepEqual(&exp, act) {
+		t.Errorf("Unexpected stats of %#v, expecting %#v", *act, exp)
+		w := new(strings.Builder)
+		a.PrettyPrint(w)
+		t.Logf("tree is\n%v", w.String())
+	}
 }

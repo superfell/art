@@ -63,12 +63,32 @@ func (a *Art) PrettyPrint(w io.Writer) {
 	bw.Flush()
 }
 
+type Stats struct {
+	Node4s   int
+	Node16s  int
+	Node48s  int
+	Node256s int
+	Leafs    int
+	Keys     int
+}
+
+// Stats returns current statistics about the nodes & keys in the tree.
+func (a *Art) Stats() *Stats {
+	s := &Stats{}
+	if a.root == nil {
+		return s
+	}
+	a.root.stats(s)
+	return s
+}
+
 type node interface {
 	insert(key []byte, value interface{}) node
 	get(key []byte) node
 	nodeValue() (value interface{}, exists bool)
 	walk(prefix []byte, callback ConsumerFn) WalkState
 	pretty(indent int, dest *bufio.Writer)
+	stats(s *Stats)
 }
 
 func newNode(key []byte, value interface{}) node {
@@ -196,6 +216,16 @@ func (n *node4) pretty(indent int, w *bufio.Writer) {
 	}
 }
 
+func (n *node4) stats(s *Stats) {
+	s.Node4s++
+	if n.hasValue {
+		n.children[n4ValueIdx].stats(s)
+	}
+	for i := byte(0); i < n.childCount; i++ {
+		n.children[i].stats(s)
+	}
+}
+
 type node16 struct {
 	header
 	key      [16]byte
@@ -316,6 +346,16 @@ func (n *node16) pretty(indent int, w *bufio.Writer) {
 	}
 }
 
+func (n *node16) stats(s *Stats) {
+	s.Node16s++
+	if n.hasValue {
+		n.children[n16ValueIdx].stats(s)
+	}
+	for i := byte(0); i < n.childCount; i++ {
+		n.children[i].stats(s)
+	}
+}
+
 type node48 struct {
 	header
 	key      [256]byte
@@ -420,6 +460,16 @@ func (n *node48) pretty(indent int, w *bufio.Writer) {
 	}
 }
 
+func (n *node48) stats(s *Stats) {
+	s.Node48s++
+	if n.hasValue {
+		n.children[n48ValueIdx].stats(s)
+	}
+	for i := byte(0); i < n.childCount; i++ {
+		n.children[i].stats(s)
+	}
+}
+
 type node256 struct {
 	children [256]node
 	value    interface{}
@@ -506,6 +556,20 @@ func (n *node256) pretty(indent int, w *bufio.Writer) {
 	}
 }
 
+func (n *node256) stats(s *Stats) {
+	s.Node256s++
+	if n.hasValue {
+		s.Keys++
+		// there's no actual leaf instance, but its logically a leaf
+		s.Leafs++
+	}
+	for _, c := range n.children {
+		if c != nil {
+			c.stats(s)
+		}
+	}
+}
+
 type leaf struct {
 	value interface{}
 	path  []byte
@@ -547,9 +611,19 @@ func (l *leaf) walk(prefix []byte, cb ConsumerFn) WalkState {
 
 func (l *leaf) pretty(indent int, w *bufio.Writer) {
 	w.WriteString("[leaf] ")
-	if len(l.path) > 0 {
+	writePath(l.path, w)
+	fmt.Fprintf(w, " value:%v\n", l.value)
+}
+
+func (l *leaf) stats(s *Stats) {
+	s.Leafs++
+	s.Keys++
+}
+
+func writePath(p []byte, w *bufio.Writer) {
+	if len(p) > 0 {
 		w.WriteString(" [")
-		for i, k := range l.path {
+		for i, k := range p {
 			if i > 0 {
 				w.WriteByte(' ')
 			}
@@ -557,7 +631,6 @@ func (l *leaf) pretty(indent int, w *bufio.Writer) {
 		}
 		w.WriteByte(']')
 	}
-	fmt.Fprintf(w, " value:%v\n", l.value)
 }
 
 var spaces = bytes.Repeat([]byte{' '}, 16)
