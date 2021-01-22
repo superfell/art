@@ -1,5 +1,7 @@
 package art
 
+import "bytes"
+
 // Art ...
 type Art struct {
 	root node
@@ -53,14 +55,10 @@ type node interface {
 }
 
 func newNode(key []byte, value interface{}) node {
-	if len(key) == 0 {
-		return &leaf{value: value}
+	return &leaf{
+		path:  key,
+		value: value,
 	}
-	n := &node4{}
-	n.header.childCount = 1
-	n.key[0] = key[0]
-	n.children[0] = newNode(key[1:], value)
-	return n
 }
 
 type header struct {
@@ -79,9 +77,9 @@ const n16ValueIdx = 15
 const n48ValueIdx = 47
 
 type node4 struct {
+	header
 	key      [4]byte
 	children [4]node
-	header
 }
 
 func (n *node4) insert(key []byte, value interface{}) node {
@@ -167,9 +165,9 @@ func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
 }
 
 type node16 struct {
+	header
 	key      [16]byte
 	children [16]node
-	header
 }
 
 // constructs a new Node16 from a Node4
@@ -272,9 +270,9 @@ func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
 }
 
 type node48 struct {
+	header
 	key      [256]byte
 	children [48]node
-	header
 }
 
 func newNode48(src *node16) node {
@@ -430,17 +428,23 @@ func (n *node256) walk(prefix []byte, cb ConsumerFn) WalkState {
 }
 
 type leaf struct {
-	header
 	value interface{}
+	path  []byte
 }
 
 func (l *leaf) insert(key []byte, value interface{}) node {
-	if len(key) > 0 {
+	if len(key) > 0 || len(l.path) > 0 {
 		// if there's a key, then we need to change this item to a node that contains this leaf as a value
 		// then pass the key down to that node
 		n := &node4{}
-		n.hasValue = true
-		n.children[3] = l
+		if len(l.path) == 0 {
+			// leaf can become the node's value
+			n.hasValue = true
+			n.children[3] = l
+		} else {
+			// the leaf has a path, so should be inserted into the node as a child
+			n.insert(l.path, l.value)
+		}
 		return n.insert(key, value)
 	}
 	l.value = value
@@ -452,12 +456,12 @@ func (l *leaf) nodeValue() (interface{}, bool) {
 }
 
 func (l *leaf) get(key []byte) node {
-	if len(key) > 0 {
-		return nil
+	if bytes.Equal(key, l.path) {
+		return l
 	}
-	return l
+	return nil
 }
 
 func (l *leaf) walk(prefix []byte, cb ConsumerFn) WalkState {
-	return cb(prefix, l.value)
+	return cb(append(prefix, l.path...), l.value)
 }
