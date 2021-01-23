@@ -89,6 +89,7 @@ type node interface {
 	walk(prefix []byte, callback ConsumerFn) WalkState
 	pretty(indent int, dest *bufio.Writer)
 	stats(s *Stats)
+	trimPathStart(amount int)
 }
 
 func newNode(key []byte, value interface{}) node {
@@ -109,6 +110,10 @@ type header struct {
 	hasValue bool
 }
 
+func (h *header) trimPathStart(amount int) {
+	h.path = h.path[amount:]
+}
+
 const n4ValueIdx = 3
 const n16ValueIdx = 15
 const n48ValueIdx = 47
@@ -120,6 +125,11 @@ type node4 struct {
 }
 
 func (n *node4) insert(key []byte, value interface{}) node {
+	splitN, replaced, prefixLen := splitNodePath(key, n.path, n)
+	if replaced {
+		return splitN.insert(key, value)
+	}
+	key = key[prefixLen:]
 	if len(key) == 0 {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
@@ -133,13 +143,16 @@ func (n *node4) insert(key []byte, value interface{}) node {
 			n.header.hasValue = true
 			return n
 		}
-		// ugh, we're full, this'll drop through to the grow at the bottom
-	} else {
-		for i := byte(0); i < n.header.childCount; i++ {
-			if n.key[i] == key[0] {
-				n.children[i] = n.children[i].insert(key[1:], value)
-				return n
-			}
+		// we're full, need to grow
+		n16 := newNode16(n)
+		n16.children[n16ValueIdx] = newNode(key, value)
+		n16.hasValue = true
+		return n16
+	}
+	for i := byte(0); i < n.header.childCount; i++ {
+		if n.key[i] == key[0] {
+			n.children[i] = n.children[i].insert(key[1:], value)
+			return n
 		}
 	}
 	maxChildren := byte(4)
@@ -153,7 +166,9 @@ func (n *node4) insert(key []byte, value interface{}) node {
 		n.header.childCount++
 		return n
 	}
-	return newNode16(n).insert(key, value)
+	n16 := newNode16(n)
+	n16.addChildLeaf(key, value)
+	return n16
 }
 
 func (n *node4) nodeValue() (interface{}, bool) {
@@ -164,6 +179,10 @@ func (n *node4) nodeValue() (interface{}, bool) {
 }
 
 func (n *node4) get(key []byte) node {
+	if !bytes.HasPrefix(key, n.path) {
+		return nil
+	}
+	key = key[len(n.path):]
 	if len(key) == 0 {
 		return n
 	}
@@ -176,6 +195,7 @@ func (n *node4) get(key []byte) node {
 }
 
 func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
+	prefix = append(prefix, n.path...)
 	val, exists := n.nodeValue()
 	if exists {
 		if cb(prefix, val) == Stop {
@@ -203,8 +223,9 @@ func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
 
 func (n *node4) pretty(indent int, w *bufio.Writer) {
 	w.WriteString("[n4] ")
+	writePath(n.path, w)
 	if n.hasValue {
-		w.WriteString("value: ")
+		w.WriteString(" value: ")
 		n.children[n4ValueIdx].pretty(indent, w)
 	} else {
 		w.WriteByte('\n')
@@ -232,14 +253,10 @@ type node16 struct {
 	children [16]node
 }
 
-// constructs a new Node16 from a Node4
+// constructs a new Node16 from a Node4 and adds the additional child value
 func newNode16(src *node4) *node16 {
 	n := node16{header: src.header}
-	maxSrcSlots := byte(4)
-	if src.hasValue {
-		maxSrcSlots--
-	}
-	for i := byte(0); i < maxSrcSlots; i++ {
+	for i := 0; i < int(src.header.childCount); i++ {
 		n.key[i] = src.key[i]
 		n.children[i] = src.children[i]
 	}
@@ -250,6 +267,11 @@ func newNode16(src *node4) *node16 {
 }
 
 func (n *node16) insert(key []byte, value interface{}) node {
+	splitN, replaced, prefixLen := splitNodePath(key, n.path, n)
+	if replaced {
+		return splitN.insert(key, value)
+	}
+	key = key[prefixLen:]
 	if len(key) == 0 {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
@@ -263,27 +285,36 @@ func (n *node16) insert(key []byte, value interface{}) node {
 			n.header.hasValue = true
 			return n
 		}
-		// ugh, we're full, this'll drop through to the grow at the bottom
-	} else {
-		for i := byte(0); i < n.childCount; i++ {
-			if n.key[i] == key[0] {
-				n.children[i] = n.children[i].insert(key[1:], value)
-				return n
-			}
-		}
-		maxChildren := byte(16)
-		if n.hasValue {
-			maxChildren--
-		}
-		if n.childCount < maxChildren {
-			idx := n.childCount
-			n.key[idx] = key[0]
-			n.children[idx] = newNode(key[1:], value)
-			n.childCount++
+		// we're full, need to grow
+		n48 := newNode48(n)
+		n48.children[n48ValueIdx] = newNode(key, value)
+		n48.hasValue = true
+		return n48
+	}
+	for i := byte(0); i < n.childCount; i++ {
+		if n.key[i] == key[0] {
+			n.children[i] = n.children[i].insert(key[1:], value)
 			return n
 		}
 	}
-	return newNode48(n).insert(key, value)
+	maxChildren := byte(16)
+	if n.hasValue {
+		maxChildren--
+	}
+	if n.childCount < maxChildren {
+		n.addChildLeaf(key, value)
+		return n
+	}
+	n48 := newNode48(n)
+	n48.addChildLeaf(key, value)
+	return n48
+}
+
+func (n *node16) addChildLeaf(key []byte, val interface{}) {
+	idx := n.childCount
+	n.key[idx] = key[0]
+	n.children[idx] = newNode(key[1:], val)
+	n.header.childCount++
 }
 
 func (n *node16) nodeValue() (interface{}, bool) {
@@ -294,6 +325,10 @@ func (n *node16) nodeValue() (interface{}, bool) {
 }
 
 func (n *node16) get(key []byte) node {
+	if !bytes.HasPrefix(key, n.path) {
+		return nil
+	}
+	key = key[len(n.path):]
 	if len(key) == 0 {
 		return n
 	}
@@ -306,6 +341,7 @@ func (n *node16) get(key []byte) node {
 }
 
 func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
+	prefix = append(prefix, n.path...)
 	val, exists := n.nodeValue()
 	if exists {
 		if cb(prefix, val) == Stop {
@@ -333,8 +369,9 @@ func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
 
 func (n *node16) pretty(indent int, w *bufio.Writer) {
 	w.WriteString("[n16] ")
+	writePath(n.path, w)
 	if n.hasValue {
-		w.WriteString("value: ")
+		w.WriteString(" value: ")
 		n.children[n16ValueIdx].pretty(indent, w)
 	} else {
 		w.WriteByte('\n')
@@ -362,7 +399,7 @@ type node48 struct {
 	children [48]node
 }
 
-func newNode48(src *node16) node {
+func newNode48(src *node16) *node48 {
 	n := &node48{header: src.header}
 	if src.hasValue {
 		n.children[n48ValueIdx] = src.children[n16ValueIdx]
@@ -375,6 +412,11 @@ func newNode48(src *node16) node {
 }
 
 func (n *node48) insert(key []byte, value interface{}) node {
+	splitN, replaced, prefixLen := splitNodePath(key, n.path, n)
+	if replaced {
+		return splitN.insert(key, value)
+	}
+	key = key[prefixLen:]
 	if len(key) == 0 {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
@@ -389,25 +431,34 @@ func (n *node48) insert(key []byte, value interface{}) node {
 			return n
 		}
 		// ugh, we're full, this'll drop through to the grow at the bottom
-	} else {
-		slot := n.key[key[0]]
-		if slot > 0 {
-			slot = slot - 1
-			n.children[slot] = n.children[slot].insert(key[1:], value)
-			return n
-		}
-		maxSlots := byte(48)
-		if n.hasValue {
-			maxSlots--
-		}
-		if n.childCount < maxSlots {
-			n.key[key[0]] = n.childCount + 1
-			n.children[n.childCount] = newNode(key[1:], value)
-			n.childCount++
-			return n
-		}
+		n256 := newNode256(n)
+		n256.value = value
+		n256.hasValue = true
+		return n256
 	}
-	return newNode256(n).insert(key, value)
+	slot := n.key[key[0]]
+	if slot > 0 {
+		slot = slot - 1
+		n.children[slot] = n.children[slot].insert(key[1:], value)
+		return n
+	}
+	maxSlots := byte(48)
+	if n.hasValue {
+		maxSlots--
+	}
+	if n.childCount < maxSlots {
+		n.addChildLeaf(key, value)
+		return n
+	}
+	n256 := newNode256(n)
+	n256.children[key[0]] = newNode(key[1:], value)
+	return n256
+}
+
+func (n *node48) addChildLeaf(key []byte, val interface{}) {
+	n.key[key[0]] = n.childCount + 1
+	n.children[n.childCount] = newNode(key[1:], val)
+	n.childCount++
 }
 
 func (n *node48) nodeValue() (interface{}, bool) {
@@ -418,6 +469,10 @@ func (n *node48) nodeValue() (interface{}, bool) {
 }
 
 func (n *node48) get(key []byte) node {
+	if !bytes.HasPrefix(key, n.path) {
+		return nil
+	}
+	key = key[len(n.path):]
 	if len(key) == 0 {
 		return n
 	}
@@ -429,6 +484,7 @@ func (n *node48) get(key []byte) node {
 }
 
 func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
+	prefix = append(prefix, n.path...)
 	v, exists := n.nodeValue()
 	if exists && cb(prefix, v) == Stop {
 		return Stop
@@ -445,8 +501,9 @@ func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
 
 func (n *node48) pretty(indent int, w *bufio.Writer) {
 	w.WriteString("[n48] ")
+	writePath(n.path, w)
 	if n.hasValue {
-		w.WriteString("value: ")
+		w.WriteString(" value: ")
 		n.children[n48ValueIdx].pretty(indent, w)
 	} else {
 		w.WriteByte('\n')
@@ -476,7 +533,7 @@ type node256 struct {
 	header
 }
 
-func newNode256(src *node48) node {
+func newNode256(src *node48) *node256 {
 	n := &node256{header: src.header}
 	if src.hasValue {
 		var exists bool
@@ -485,16 +542,22 @@ func newNode256(src *node48) node {
 			panic("error, src node48 said it had a value, but does not")
 		}
 	}
-	for i, k := range src.key {
-		if k > 0 {
-			n.children[i] = src.children[k-1]
+	for k, slot := range src.key {
+		if slot > 0 {
+			n.children[k] = src.children[slot-1]
 		}
 	}
 	return n
 }
 
 func (n *node256) insert(key []byte, value interface{}) node {
+	splitN, replaced, prefixLen := splitNodePath(key, n.path, n)
+	if replaced {
+		return splitN.insert(key, value)
+	}
+	key = key[prefixLen:]
 	if len(key) == 0 {
+		n.hasValue = true
 		n.value = value
 		return n
 	}
@@ -508,6 +571,10 @@ func (n *node256) insert(key []byte, value interface{}) node {
 }
 
 func (n *node256) get(key []byte) node {
+	if !bytes.HasPrefix(key, n.path) {
+		return nil
+	}
+	key = key[len(n.path):]
 	if len(key) == 0 {
 		if n.hasValue {
 			return n
@@ -529,6 +596,7 @@ func (n *node256) nodeValue() (interface{}, bool) {
 }
 
 func (n *node256) walk(prefix []byte, cb ConsumerFn) WalkState {
+	prefix = append(prefix, n.path...)
 	v, exists := n.nodeValue()
 	if exists && cb(prefix, v) == Stop {
 		return Stop
@@ -543,6 +611,7 @@ func (n *node256) walk(prefix []byte, cb ConsumerFn) WalkState {
 
 func (n *node256) pretty(indent int, w *bufio.Writer) {
 	w.WriteString("[n256] ")
+	writePath(n.path, w)
 	if n.hasValue {
 		fmt.Fprintf(w, "value: %v", n.value)
 	}
@@ -575,21 +644,47 @@ type leaf struct {
 	path  []byte
 }
 
+func (l *leaf) trimPathStart(amount int) {
+	l.path = l.path[amount:]
+}
+
+// splitNodePath will if needed split the supplied node into 2 based on the
+// overlap of the key and the nodes compressed path. If the key and the path are the
+// same then there's no need to split and the node is returned unaltered.
+func splitNodePath(key []byte, path []byte, n node) (out node, replaced bool, prefixLen int) {
+	prefixLen = prefixSize(key, path)
+	if prefixLen < len(path) {
+		// need to split into 2
+		parent := &node4{}
+		parent.path = path[:prefixLen]
+		parent.childCount = 1
+		parent.key[0] = path[prefixLen]
+		parent.children[0] = n
+		// +1 because we consumed a byte for the child key
+		n.trimPathStart(prefixLen + 1)
+		return parent, true, prefixLen
+	}
+	return n, false, prefixLen
+}
+
 func (l *leaf) insert(key []byte, value interface{}) node {
-	if len(key) > 0 || len(l.path) > 0 {
-		// if there's a key, then we need to change this item to a node that contains this leaf as a value
-		// then pass the key down to that node
-		n := &node4{}
-		if len(l.path) == 0 {
-			// leaf can become the node's value
-			n.hasValue = true
-			n.children[3] = l
-		} else {
-			// the leaf has a path, so should be inserted into the node as a child
-			n.insert(l.path, l.value)
+	if len(l.path) > 0 {
+		// may need to split this so that the child nodes can be added
+		splitN, replaced, _ := splitNodePath(key, l.path, l)
+		if replaced {
+			return splitN.insert(key, value)
 		}
+	}
+	if len(key) > 0 {
+		// we need to "promote" this leaf to a node with a contained value
+		n := &node4{}
+		n.path = l.path
+		l.path = nil
+		n.hasValue = true
+		n.children[3] = l
 		return n.insert(key, value)
 	}
+	// key & path both empty update ourselves
 	l.value = value
 	return l
 }
@@ -640,4 +735,15 @@ func writeIndent(indent int, w *bufio.Writer) {
 		spaces = append(spaces, bytes.Repeat([]byte{' '}, indent-len(spaces)+4)...)
 	}
 	w.Write(spaces[:indent])
+}
+
+// prefixSize returns the length of the common prefix of the 2 slices.
+func prefixSize(a, b []byte) int {
+	i := 0
+	for ; i < len(a) && i < len(b); i++ {
+		if a[i] != b[i] {
+			return i
+		}
+	}
+	return i
 }

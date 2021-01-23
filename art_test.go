@@ -59,6 +59,15 @@ func Test_Grow4to16(t *testing.T) {
 	testArt(t, keyVals, nil)
 }
 
+func Test_Node4FullAddValue(t *testing.T) {
+	testArt(t, []keyVal{
+		kvs("11", "1"),
+		kvs("12", "2"),
+		kvs("13", "3"),
+		kvs("14", "4"),
+		kvs("1", "5"),
+	}, nil)
+}
 func Test_GrowTo48(t *testing.T) {
 	keyVals := []keyVal{}
 	k := []byte{65, 66}
@@ -135,9 +144,9 @@ func Test_NodeCompression(t *testing.T) {
 
 func Test_LeafExpansion(t *testing.T) {
 	testArt(t, []keyVal{
-		kvs("start", "foo"),
-		kvs("start more", "bar"),
-		kvs("start more and more", "baz"),
+		kvs("aaa", "foo"),
+		kvs("aaattt", "bar"),
+		kvs("aaatttxxx", "baz"),
 	}, nil)
 }
 
@@ -281,17 +290,21 @@ func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 			hasByteKey(t, a, inserts[j].key, inserts[j].val)
 		}
 		hasKeyVals(t, a, inserts[:i+1])
+		if t.Failed() {
+			tree := &strings.Builder{}
+			a.PrettyPrint(tree)
+			t.Logf("tree after inserting key %v\n%v", inserts[i].key, tree.String())
+			t.FailNow() // no point to keep going
+		}
 	}
 	if expectedStats != nil {
 		act := a.Stats()
 		if !reflect.DeepEqual(*expectedStats, *act) {
 			t.Errorf("Unexpected stats of %#v, expecting %#v", *act, *expectedStats)
+			tree := &strings.Builder{}
+			a.PrettyPrint(tree)
+			t.Logf("\n" + tree.String())
 		}
-	}
-	if t.Failed() {
-		tree := &strings.Builder{}
-		a.PrettyPrint(tree)
-		t.Logf(tree.String())
 	}
 }
 
