@@ -34,7 +34,7 @@ func Test_LeafPathToNToLeafPath(t *testing.T) {
 	testArt(t, []keyVal{
 		kvs("123", "1"),
 		kvs("12345678", "2"),
-	}, &Stats{Node4s: 1, Leafs: 2, Keys: 2})
+	}, &Stats{Node4s: 1, Keys: 2})
 }
 
 func Test_MultipleInserts(t *testing.T) {
@@ -52,7 +52,7 @@ func Test_Grow4to16(t *testing.T) {
 		keyVals = append(keyVals, kv(append(k, i), i))
 	}
 	keyVals = append(keyVals, kv(append(k, 5, 10), 100))
-	testArt(t, keyVals, &Stats{Node4s: 1, Node16s: 1, Leafs: 11, Keys: 11})
+	testArt(t, keyVals, &Stats{Node4s: 1, Node16s: 1, Keys: 11})
 }
 
 func Test_Node4FullAddValue(t *testing.T) {
@@ -62,7 +62,7 @@ func Test_Node4FullAddValue(t *testing.T) {
 		kvs("13", "3"),
 		kvs("14", "4"),
 		kvs("1", "5"),
-	}, &Stats{Node16s: 1, Leafs: 5, Keys: 5})
+	}, &Stats{Node16s: 1, Keys: 5})
 }
 func Test_GrowTo48(t *testing.T) {
 	keyVals := []keyVal{}
@@ -71,7 +71,7 @@ func Test_GrowTo48(t *testing.T) {
 		keyVals = append(keyVals, kv(append(k, i), i))
 	}
 	keyVals = append(keyVals, kv(append(k, 5, 10), 100))
-	testArt(t, keyVals, &Stats{Node48s: 1, Node4s: 1, Leafs: 41, Keys: 41})
+	testArt(t, keyVals, &Stats{Node48s: 1, Node4s: 1, Keys: 41})
 }
 
 func Test_GrowTo256(t *testing.T) {
@@ -81,7 +81,7 @@ func Test_GrowTo256(t *testing.T) {
 		keyVals = append(keyVals, kv(append(k, byte(i)), i))
 	}
 	keyVals = append(keyVals, kv(append(k, 5, 10), 100))
-	testArt(t, keyVals, &Stats{Node256s: 1, Node4s: 1, Leafs: 257, Keys: 257})
+	testArt(t, keyVals, &Stats{Node256s: 1, Node4s: 1, Keys: 257})
 }
 
 func Test_GrowWithPrefixValue(t *testing.T) {
@@ -135,7 +135,7 @@ func Test_NodeCompression(t *testing.T) {
 	testArt(t, []keyVal{
 		kvs("1234567", "1"),
 		kvs("1239000", "2"),
-	}, &Stats{Node4s: 1, Leafs: 2, Keys: 2})
+	}, &Stats{Node4s: 1, Keys: 2})
 }
 
 func Test_LeafLazyExpansion(t *testing.T) {
@@ -143,7 +143,7 @@ func Test_LeafLazyExpansion(t *testing.T) {
 		kvs("aaa", "foo"),
 		kvs("aaattt", "bar"),
 		kvs("aaatttxxx", "baz"),
-	}, &Stats{Node4s: 2, Leafs: 3, Keys: 3})
+	}, &Stats{Node4s: 2, Keys: 3})
 }
 
 func Test_Walk(t *testing.T) {
@@ -152,7 +152,7 @@ func Test_Walk(t *testing.T) {
 		kvs("A", "a"),
 		kvs("AA", "aa"),
 		kvs("B", "b"),
-	}, &Stats{Node4s: 2, Leafs: 4, Keys: 4})
+	}, &Stats{Node4s: 2, Keys: 4})
 }
 
 func Test_MoreWalk(t *testing.T) {

@@ -68,7 +68,6 @@ type Stats struct {
 	Node16s  int
 	Node48s  int
 	Node256s int
-	Leafs    int
 	Keys     int
 }
 
@@ -430,7 +429,7 @@ func (n *node48) insert(key []byte, value interface{}) node {
 			n.children[n48ValueIdx] = newNode(key, value)
 			return n
 		}
-		// ugh, we're full, this'll drop through to the grow at the bottom
+		// We're full, need to grow to a larger node size first
 		n256 := newNode256(n)
 		n256.value = value
 		n256.hasValue = true
@@ -629,8 +628,6 @@ func (n *node256) stats(s *Stats) {
 	s.Node256s++
 	if n.hasValue {
 		s.Keys++
-		// there's no actual leaf instance, but its logically a leaf
-		s.Leafs++
 	}
 	for _, c := range n.children {
 		if c != nil {
@@ -709,7 +706,6 @@ func (l *leaf) pretty(indent int, w *bufio.Writer) {
 }
 
 func (l *leaf) stats(s *Stats) {
-	s.Leafs++
 	s.Keys++
 }
 
