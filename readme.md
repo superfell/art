@@ -11,7 +11,7 @@ This implementation is still a work in progress.
 The API might change as additional features are implemented.
 
 ```go
-a := new(art.Art)
+a := new(art.Tree)
 k := []byte{1, 2, 4, 0, 1}
 k2 := []byte{1, 2, 4, 0, 2}
 a.Insert(k, "bob")
@@ -19,8 +19,8 @@ v, exists := a.Get(k)
 fmt.Printf("key %v exists %t with value %v\n", k, exists, v)
 a.Insert(k2, "eve")
 a.Walk(func(k []byte, v interface{}) art.WalkState {
-    fmt.Printf("%v : %v\n", k, v)
-    return art.Continue
+  fmt.Printf("%v : %v\n", k, v)
+  return art.Continue
 })
 a.PrettyPrint(os.Stdout)
 ```

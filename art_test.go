@@ -159,7 +159,7 @@ func Test_MoreWalk(t *testing.T) {
 	sizes := []int{2, 4, 5, 16, 17, 47, 48, 49, 50, 120, 255, 256}
 	for _, sz := range sizes {
 		t.Run(fmt.Sprintf("Walk size %d", sz), func(t *testing.T) {
-			a := new(Art)
+			a := new(Tree)
 			baseK := []byte{'A'}
 			for i := 0; i < sz; i++ {
 				a.Insert(append(baseK, byte(i)), i)
@@ -241,7 +241,7 @@ func testArt(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 }
 
 func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
-	a := new(Art)
+	a := new(Tree)
 	defer func() {
 		if t.Failed() {
 			tree := &strings.Builder{}
@@ -315,7 +315,7 @@ func reverse(kv []keyVal) []keyVal {
 	return c
 }
 
-func hasKeyVals(t *testing.T, a *Art, exp []keyVal) {
+func hasKeyVals(t *testing.T, a *Tree, exp []keyVal) {
 	// verifies that the tree matches the supplied set of kv's by using the Walk fn
 	i := 0
 	a.Walk(func(k []byte, v interface{}) WalkState {

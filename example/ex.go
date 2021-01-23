@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	a := new(art.Art)
+	a := new(art.Tree)
 	k := []byte{1, 2, 4, 0, 1}
 	k2 := []byte{1, 2, 4, 0, 2}
 	a.Insert(k, "bob")

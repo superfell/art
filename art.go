@@ -7,13 +7,13 @@ import (
 	"io"
 )
 
-// Art ...
-type Art struct {
+// Tree ...
+type Tree struct {
 	root node
 }
 
 // Insert ....
-func (a *Art) Insert(key []byte, value interface{}) {
+func (a *Tree) Insert(key []byte, value interface{}) {
 	if a.root == nil {
 		a.root = newNode(key, value)
 	} else {
@@ -22,7 +22,7 @@ func (a *Art) Insert(key []byte, value interface{}) {
 }
 
 // Get ...
-func (a *Art) Get(key []byte) (value interface{}, exists bool) {
+func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 	if a.root == nil {
 		return nil, false
 	}
@@ -45,7 +45,7 @@ type ConsumerFn func(key []byte, value interface{}) WalkState
 
 // Walk will call the provided callback function with each key/value pair, in key order.
 // the callback return value can be used to continue or stop the walk
-func (a *Art) Walk(callback ConsumerFn) {
+func (a *Tree) Walk(callback ConsumerFn) {
 	if a.root == nil {
 		return
 	}
@@ -53,7 +53,7 @@ func (a *Art) Walk(callback ConsumerFn) {
 }
 
 // PrettyPrint ...
-func (a *Art) PrettyPrint(w io.Writer) {
+func (a *Tree) PrettyPrint(w io.Writer) {
 	if a.root == nil {
 		io.WriteString(w, "[empty]\n")
 		return
@@ -72,7 +72,7 @@ type Stats struct {
 }
 
 // Stats returns current statistics about the nodes & keys in the tree.
-func (a *Art) Stats() *Stats {
+func (a *Tree) Stats() *Stats {
 	s := &Stats{}
 	if a.root == nil {
 		return s
