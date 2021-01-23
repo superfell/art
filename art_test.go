@@ -162,7 +162,7 @@ func Test_MoreWalk(t *testing.T) {
 			a := new(Tree)
 			baseK := []byte{'A'}
 			for i := 0; i < sz; i++ {
-				a.Insert(append(baseK, byte(i)), i)
+				a.Put(append(baseK, byte(i)), i)
 			}
 			t.Run("Full Walk", func(t *testing.T) {
 				i := 0
@@ -196,7 +196,7 @@ func Test_MoreWalk(t *testing.T) {
 			})
 			t.Run("With NodeValues", func(t *testing.T) {
 				for i := 0; i < sz; i++ {
-					a.Insert(append(baseK, byte(i), byte(i)), i*i)
+					a.Put(append(baseK, byte(i), byte(i)), i*i)
 				}
 				calls := 0
 				prevKey := make([]byte, 0, 5)
@@ -252,7 +252,7 @@ func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 
 	store := kvStore{}
 	for i := 0; i < len(inserts); i++ {
-		a.Insert(inserts[i].key, inserts[i].val)
+		a.Put(inserts[i].key, inserts[i].val)
 		store.put(inserts[i])
 		hasKeyVals(t, a, store.ordered())
 		if t.Failed() {

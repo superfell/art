@@ -7,13 +7,16 @@ import (
 	"io"
 )
 
-// Tree ...
+// Tree is an Adaptive Radix Tree. Keys are arbitrary byte slices, and the path through the tree
+// is the key. values are stored on Leafs of the tree. The tree is organized in lexicographical
+// order of the keys.
 type Tree struct {
 	root node
 }
 
-// Insert ....
-func (a *Tree) Insert(key []byte, value interface{}) {
+// Put inserts or updates a value in the tree associated with the provided key. value can be any
+// interface value, including nil. key can be an arbitrary byte slice, including the empty slice.
+func (a *Tree) Put(key []byte, value interface{}) {
 	if a.root == nil {
 		a.root = newNode(key, value)
 	} else {
@@ -21,7 +24,8 @@ func (a *Tree) Insert(key []byte, value interface{}) {
 	}
 }
 
-// Get ...
+// Get the value for the provided key. exists is true if the key contains a value in the tree,
+// false otherwise. This can be useful if you are storing nil values in the tree.
 func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 	if a.root == nil {
 		return nil, false
@@ -33,18 +37,22 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 	return n.nodeValue()
 }
 
+// WalkState describes how to proceed with an iteration of the tree (or partial tree).
 type WalkState byte
 
 const (
+	// Continue will cause the tree iteration to continue on to the next key.
 	Continue WalkState = iota
+	// Stop will halt the iteration at this point.
 	Stop
 )
 
-// ConsumerFn ...
+// ConsumerFn is the type of the callback function. It is called with key/value pairs
+// and the return value can be used to signal to continue or stop the iteration.
 type ConsumerFn func(key []byte, value interface{}) WalkState
 
 // Walk will call the provided callback function with each key/value pair, in key order.
-// the callback return value can be used to continue or stop the walk
+// The callback return value can be used to continue or stop the walk
 func (a *Tree) Walk(callback ConsumerFn) {
 	if a.root == nil {
 		return
@@ -52,7 +60,8 @@ func (a *Tree) Walk(callback ConsumerFn) {
 	a.root.walk(nil, callback)
 }
 
-// PrettyPrint ...
+// PrettyPrint will generate a compact representation of the state of the tree. Its primary
+// use is in diagnostics, or helping to understand how the tree is constructed.
 func (a *Tree) PrettyPrint(w io.Writer) {
 	if a.root == nil {
 		io.WriteString(w, "[empty]\n")
@@ -63,6 +72,7 @@ func (a *Tree) PrettyPrint(w io.Writer) {
 	bw.Flush()
 }
 
+// Stats contains counts of items in the tree
 type Stats struct {
 	Node4s   int
 	Node16s  int
@@ -113,6 +123,7 @@ func (h *header) trimPathStart(amount int) {
 	h.path = h.path[amount:]
 }
 
+// index into the children arrays for the node value leaf.
 const n4ValueIdx = 3
 const n16ValueIdx = 15
 const n48ValueIdx = 47
@@ -252,7 +263,7 @@ type node16 struct {
 	children [16]node
 }
 
-// constructs a new Node16 from a Node4 and adds the additional child value
+// constructs a new node16 from a node4.
 func newNode16(src *node4) *node16 {
 	n := node16{header: src.header}
 	for i := 0; i < int(src.header.childCount); i++ {
