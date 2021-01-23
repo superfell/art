@@ -100,9 +100,9 @@ func newNode(key []byte, value interface{}) node {
 }
 
 type header struct {
-	// path prefix to this node
+	// additional key values to this node (for path compression, lazy expansion)
 	path []byte
-	// number of populated children in this node
+	// number of populated children in this node [not for node256]
 	childCount byte
 	// if set, this node has a value associated with it, not just child nodes
 	// how/where the value is kept is node type dependent. node4/16/48 keep
@@ -668,12 +668,15 @@ func splitNodePath(key []byte, path []byte, n node) (out node, replaced bool, pr
 }
 
 func (l *leaf) insert(key []byte, value interface{}) node {
-	if len(l.path) > 0 {
-		// may need to split this so that the child nodes can be added
-		splitN, replaced, _ := splitNodePath(key, l.path, l)
-		if replaced {
-			return splitN.insert(key, value)
-		}
+	// may need to split this so that the child nodes can be added
+	splitN, replaced, prefixLen := splitNodePath(key, l.path, l)
+	if replaced {
+		return splitN.insert(key, value)
+	}
+	if prefixLen == len(key) && prefixLen == len(l.path) {
+		// this is our stop
+		l.value = value
+		return l
 	}
 	if len(key) > 0 {
 		// we need to "promote" this leaf to a node with a contained value

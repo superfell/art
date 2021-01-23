@@ -16,14 +16,11 @@ func Test_Empty(t *testing.T) {
 }
 
 func Test_OverwriteWithSameKey(t *testing.T) {
-	a := new(Art)
-	k := []byte("QWE")
-	a.Insert(k, "one")
-	hasStringKey(t, a, "QWE", "one")
-	hasKeyVals(t, a, []keyVal{kvs("QWE", "one")})
-	a.Insert(k, "two")
-	hasStringKey(t, a, "QWE", "two")
-	hasKeyVals(t, a, []keyVal{kvs("QWE", "two")})
+	testArt(t, []keyVal{
+		kvs("one", "one"),
+		kvs("two", "two"),
+		kvs("one", "three"),
+	}, nil)
 }
 
 func Test_InsertOnLeaf(t *testing.T) {
@@ -138,7 +135,7 @@ func Test_NilValue(t *testing.T) {
 func Test_NodeCompression(t *testing.T) {
 	testArt(t, []keyVal{
 		kvs("1234567", "1"),
-		kvs("1239000", "1"),
+		kvs("1239000", "2"),
 	}, &Stats{Node4s: 1, Leafs: 2, Keys: 2})
 }
 
@@ -251,12 +248,8 @@ func reverse(kv []keyVal) []keyVal {
 	return c
 }
 
-func hasKeyVals(t *testing.T, a *Art, kv []keyVal) {
+func hasKeyVals(t *testing.T, a *Art, exp []keyVal) {
 	// verifies that the tree matches the supplied set of kv's by using the Walk fn
-	exp := append([]keyVal{}, kv...)
-	sort.Slice(exp, func(i, j int) bool {
-		return bytes.Compare(exp[i].key, exp[j].key) == -1
-	})
 	i := 0
 	a.Walk(func(k []byte, v interface{}) WalkState {
 		if !bytes.Equal(exp[i].key, k) {
@@ -268,8 +261,18 @@ func hasKeyVals(t *testing.T, a *Art, kv []keyVal) {
 		i++
 		return Continue
 	})
-	if i < len(kv) {
-		t.Errorf("Expecting %d keys to be walked, but only got %d", len(kv), i)
+	if i < len(exp) {
+		t.Errorf("Expecting %d keys to be walked, but only got %d", len(exp), i)
+	}
+	// check that the values are available via the Get fn as well
+	for _, kv := range exp {
+		actual, exists := a.Get(kv.key)
+		if !exists {
+			t.Errorf("key %v should have a value, but Get() says it doesn't", exists)
+		}
+		if actual != kv.val {
+			t.Errorf("value %v for key %v is not the expected value %v", actual, kv.key, kv.val)
+		}
 	}
 }
 
@@ -280,16 +283,21 @@ func testArt(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 	t.Run("reverse insertion order", func(t *testing.T) {
 		testArtOne(t, reverse(inserts), expectedStats)
 	})
+	t.Run("write twice", func(t *testing.T) {
+		testArtOne(t, append(inserts, inserts...), expectedStats)
+	})
+	t.Run("write twice in reverse", func(t *testing.T) {
+		testArtOne(t, reverse(append(inserts, inserts...)), expectedStats)
+	})
 }
 
 func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 	a := new(Art)
+	store := kvStore{}
 	for i := 0; i < len(inserts); i++ {
 		a.Insert(inserts[i].key, inserts[i].val)
-		for j := 0; j <= i; j++ {
-			hasByteKey(t, a, inserts[j].key, inserts[j].val)
-		}
-		hasKeyVals(t, a, inserts[:i+1])
+		store.put(inserts[i])
+		hasKeyVals(t, a, store.ordered())
 		if t.Failed() {
 			tree := &strings.Builder{}
 			a.PrettyPrint(tree)
@@ -338,4 +346,28 @@ func hasByteKey(t *testing.T, a *Art, k []byte, exp interface{}) {
 	if act != exp {
 		t.Errorf("Unexpected value of %#v for key %#v, expecting %#v", act, k, exp)
 	}
+}
+
+// kvStore is a really simple store that is used to build what the test should
+// expect to be in the Art given the writes to it
+type kvStore struct {
+	kvs []keyVal
+}
+
+func (s *kvStore) put(kv keyVal) {
+	for i := 0; i < len(s.kvs); i++ {
+		if bytes.Equal(kv.key, s.kvs[i].key) {
+			s.kvs[i].val = kv.val
+			return
+		}
+	}
+	s.kvs = append(s.kvs, kv)
+}
+
+// ordered returns the contents of the store in key order
+func (s *kvStore) ordered() []keyVal {
+	sort.Slice(s.kvs, func(i, j int) bool {
+		return bytes.Compare(s.kvs[i].key, s.kvs[j].key) == -1
+	})
+	return s.kvs
 }
