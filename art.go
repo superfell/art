@@ -678,18 +678,13 @@ func (l *leaf) insert(key []byte, value interface{}) node {
 		l.value = value
 		return l
 	}
-	if len(key) > 0 {
-		// we need to "promote" this leaf to a node with a contained value
-		n := &node4{}
-		n.path = l.path
-		l.path = nil
-		n.hasValue = true
-		n.children[3] = l
-		return n.insert(key, value)
-	}
-	// key & path both empty update ourselves
-	l.value = value
-	return l
+	// we need to promote this leaf to a node with a contained value
+	n := &node4{}
+	n.path = l.path
+	l.path = nil
+	n.hasValue = true
+	n.children[3] = l
+	return n.insert(key, value)
 }
 
 func (l *leaf) nodeValue() (interface{}, bool) {
@@ -735,7 +730,7 @@ var spaces = bytes.Repeat([]byte{' '}, 16)
 
 func writeIndent(indent int, w *bufio.Writer) {
 	if indent > len(spaces) {
-		spaces = append(spaces, bytes.Repeat([]byte{' '}, indent-len(spaces)+4)...)
+		spaces = bytes.Repeat([]byte{' '}, indent*2)
 	}
 	w.Write(spaces[:indent])
 }
