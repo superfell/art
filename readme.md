@@ -1,5 +1,7 @@
 # Art
 
+[![GoDoc](https://godoc.org/github.com/superfell/art?status.svg)](https://godoc.org/github.com/superfell/art)
+
 Art is a adaptive radix tree implementation in go. 
 
 Art is described in detail in the [ART paper](https://db.in.tum.de/~leis/papers/ART.pdf).
