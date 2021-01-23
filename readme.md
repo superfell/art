@@ -1,5 +1,6 @@
 # Art
 
+![Go](https://github.com/superfell/art/workflows/Go/badge.svg?branch=main) 
 [![GoDoc](https://godoc.org/github.com/superfell/art?status.svg)](https://godoc.org/github.com/superfell/art)
 
 Art is a adaptive radix tree implementation in go. 
