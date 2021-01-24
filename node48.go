@@ -86,10 +86,13 @@ func (n *node48) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node48) removeValue() bool {
+func (n *node48) removeValue() node {
 	n.children[n48ValueIdx] = nil
 	n.hasValue = false
-	return n.childCount == 0
+	if n.childCount == 0 {
+		return nil
+	}
+	return n
 }
 
 // keyForSlot returns the key value for the supplied child slot number.
@@ -102,7 +105,7 @@ func (n *node48) keyForSlot(slot byte) int {
 	panic("n48.keyForSlot called with unused slot number")
 }
 
-func (n *node48) removeChild(key byte) bool {
+func (n *node48) removeChild(key byte) node {
 	lastSlot := byte(n.childCount - 1)
 	keyOfLastSlot := n.keyForSlot(lastSlot)
 	slot := n.key[key]
@@ -111,15 +114,18 @@ func (n *node48) removeChild(key byte) bool {
 	n.key[keyOfLastSlot] = slot
 	n.key[key] = n48NoChildForKey
 	n.childCount--
-	return n.childCount == 0 && !n.hasValue
+	if n.childCount == 0 && !n.hasValue {
+		return nil
+	}
+	return n
 }
 
-func (n *node48) getNextNode(key []byte) (next node, remainingKey []byte) {
+func (n *node48) getNextNode(key []byte) (next *node, remainingKey []byte) {
 	idx := n.key[key[0]]
 	if idx == n48NoChildForKey {
 		return nil, nil
 	}
-	return n.children[idx], key[1:]
+	return &n.children[idx], key[1:]
 }
 
 func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {

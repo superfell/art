@@ -44,7 +44,7 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 		if next == nil {
 			return nil, false
 		}
-		curr = next
+		curr = *next
 		key = remainingKey
 	}
 }
@@ -55,15 +55,13 @@ func (a *Tree) Delete(key []byte) {
 	if a.root == nil {
 		return
 	}
-	if a.delete(a.root, key) {
-		a.root = nil
-	}
+	a.root = a.delete(a.root, key)
 }
 
-func (a *Tree) delete(n node, key []byte) bool {
+func (a *Tree) delete(n node, key []byte) node {
 	h := n.header()
 	if !bytes.HasPrefix(key, h.path) {
-		return false
+		return n
 	}
 	key = key[len(h.path):]
 	if len(key) == 0 {
@@ -71,12 +69,13 @@ func (a *Tree) delete(n node, key []byte) bool {
 	}
 	next, remainingKey := n.getNextNode(key)
 	if next == nil {
-		return false
+		return n
 	}
-	if a.delete(next, remainingKey) {
+	*next = a.delete(*next, remainingKey)
+	if *next == nil {
 		return n.removeChild(key[0])
 	}
-	return false
+	return n
 }
 
 // WalkState describes how to proceed with an iteration of the tree (or partial tree).
@@ -144,10 +143,14 @@ type node interface {
 	insert(key []byte, value interface{}) node
 	trimPathStart(amount int)
 
-	getNextNode(key []byte) (next node, remainingKey []byte)
+	getNextNode(key []byte) (next *node, remainingKey []byte)
 
-	removeValue() bool
-	removeChild(key byte) bool
+	// remove the value (or child) for this node, the node can be removed from the tree
+	// if it returns nil, or it can return a different node instance and the
+	// tree will be updated to that one (i.e. so that nodes can shrink to
+	// a smaller type)
+	removeValue() node
+	removeChild(key byte) node
 
 	nodeValue() (value interface{}, exists bool)
 	walk(prefix []byte, callback ConsumerFn) WalkState

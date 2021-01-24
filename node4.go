@@ -66,13 +66,16 @@ func (n *node4) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node4) removeValue() bool {
+func (n *node4) removeValue() node {
 	n.children[n4ValueIdx] = nil
 	n.hasValue = false
-	return n.childCount == 0
+	if n.childCount == 0 {
+		return nil
+	}
+	return n
 }
 
-func (n *node4) removeChild(k byte) bool {
+func (n *node4) removeChild(k byte) node {
 	lastIdx := n.childCount - 1
 	for i := 0; i < int(n.childCount); i++ {
 		if k == n.key[i] {
@@ -81,16 +84,19 @@ func (n *node4) removeChild(k byte) bool {
 			n.key[i] = n.key[lastIdx]
 			n.key[lastIdx] = 0
 			n.childCount--
-			return n.childCount == 0 && !n.hasValue
+			if n.childCount == 0 && !n.hasValue {
+				return nil
+			}
+			return n
 		}
 	}
-	return false
+	return n
 }
 
-func (n *node4) getNextNode(key []byte) (next node, remainingKey []byte) {
+func (n *node4) getNextNode(key []byte) (next *node, remainingKey []byte) {
 	for i := 0; i < int(n.childCount); i++ {
 		if key[0] == n.key[i] {
-			return n.children[i], key[1:]
+			return &n.children[i], key[1:]
 		}
 	}
 	return nil, nil

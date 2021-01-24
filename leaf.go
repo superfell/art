@@ -42,15 +42,15 @@ func (l *leaf) nodeValue() (interface{}, bool) {
 	return l.value, true
 }
 
-func (l *leaf) removeValue() bool {
-	return true
+func (l *leaf) removeValue() node {
+	return nil
 }
 
-func (l *leaf) removeChild(key byte) bool {
+func (l *leaf) removeChild(key byte) node {
 	panic("removeChild called on leaf")
 }
 
-func (l *leaf) getNextNode(key []byte) (next node, remainingKey []byte) {
+func (l *leaf) getNextNode(key []byte) (next *node, remainingKey []byte) {
 	return nil, nil
 }
 

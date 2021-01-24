@@ -46,24 +46,30 @@ func (n *node256) insert(key []byte, value interface{}) node {
 	return n
 }
 
-func (n *node256) removeValue() bool {
+func (n *node256) removeValue() node {
 	n.hasValue = false
 	n.value = nil
-	return n.childCount == 0
+	if n.childCount == 0 {
+		return nil
+	}
+	return n
 }
 
-func (n *node256) removeChild(k byte) bool {
+func (n *node256) removeChild(k byte) node {
 	n.children[k] = nil
 	n.childCount--
-	return n.childCount == 0 && !n.hasValue
+	if n.childCount == 0 && !n.hasValue {
+		return nil
+	}
+	return n
 }
 
-func (n *node256) getNextNode(key []byte) (next node, remainingKey []byte) {
+func (n *node256) getNextNode(key []byte) (next *node, remainingKey []byte) {
 	c := n.children[key[0]]
 	if c == nil {
 		return nil, nil
 	}
-	return c, key[1:]
+	return &n.children[key[0]], key[1:]
 }
 
 func (n *node256) nodeValue() (interface{}, bool) {
