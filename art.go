@@ -403,19 +403,24 @@ func (n *node16) stats(s *Stats) {
 	}
 }
 
+const n48NoChildForKey byte = 255
+
 type node48 struct {
 	header
-	key      [256]byte
+	key      [256]byte // index into children, 255 for no child
 	children [48]node
 }
 
 func newNode48(src *node16) *node48 {
 	n := &node48{header: src.header}
+	for i := range n.key {
+		n.key[i] = n48NoChildForKey
+	}
 	if src.hasValue {
 		n.children[n48ValueIdx] = src.children[n16ValueIdx]
 	}
 	for i := byte(0); i < src.childCount; i++ {
-		n.key[src.key[i]] = i + 1
+		n.key[src.key[i]] = i
 		n.children[i] = src.children[i]
 	}
 	return n
@@ -447,12 +452,11 @@ func (n *node48) insert(key []byte, value interface{}) node {
 		return n256
 	}
 	slot := n.key[key[0]]
-	if slot > 0 {
-		slot = slot - 1
+	if slot < n48NoChildForKey {
 		n.children[slot] = n.children[slot].insert(key[1:], value)
 		return n
 	}
-	maxSlots := byte(48)
+	maxSlots := byte(len(n.children))
 	if n.hasValue {
 		maxSlots--
 	}
@@ -466,7 +470,7 @@ func (n *node48) insert(key []byte, value interface{}) node {
 }
 
 func (n *node48) addChildLeaf(key []byte, val interface{}) {
-	n.key[key[0]] = n.childCount + 1
+	n.key[key[0]] = n.childCount
 	n.children[n.childCount] = newNode(key[1:], val)
 	n.childCount++
 }
@@ -487,10 +491,10 @@ func (n *node48) get(key []byte) node {
 		return n
 	}
 	idx := n.key[key[0]]
-	if idx == 0 {
+	if idx == n48NoChildForKey {
 		return nil
 	}
-	return n.children[idx-1].get(key[1:])
+	return n.children[idx].get(key[1:])
 }
 
 func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -500,8 +504,8 @@ func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
 		return Stop
 	}
 	for idx, slot := range n.key {
-		if slot > 0 {
-			if n.children[slot-1].walk(append(prefix, byte(idx)), cb) == Stop {
+		if slot != n48NoChildForKey {
+			if n.children[slot].walk(append(prefix, byte(idx)), cb) == Stop {
 				return Stop
 			}
 		}
@@ -553,8 +557,8 @@ func newNode256(src *node48) *node256 {
 		}
 	}
 	for k, slot := range src.key {
-		if slot > 0 {
-			n.children[k] = src.children[slot-1]
+		if slot != n48NoChildForKey {
+			n.children[k] = src.children[slot]
 		}
 	}
 	return n
