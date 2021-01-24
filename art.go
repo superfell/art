@@ -30,11 +30,43 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 	if a.root == nil {
 		return nil, false
 	}
-	n := a.root.get(key)
-	if n == nil {
-		return nil, false
+	curr := a.root
+	for {
+		next, remainingKey, _ := curr.getNextNode(key)
+		if next == nil {
+			return nil, false
+		}
+		if next == curr {
+			return next.nodeValue()
+		}
+		curr = next
+		key = remainingKey
 	}
-	return n.nodeValue()
+}
+
+// Delete removes the value associated with the supplied key if it exists. Its okay to
+// call Delete with a key that doesn't exist.
+func (a *Tree) Delete(key []byte) {
+	if a.root == nil {
+		return
+	}
+	if a.delete(a.root, key) {
+		a.root = nil
+	}
+}
+
+func (a *Tree) delete(n node, key []byte) bool {
+	next, remainingKey, remover := n.getNextNode(key)
+	if next == nil {
+		return false
+	}
+	if next == n {
+		return remover()
+	}
+	if a.delete(next, remainingKey) {
+		return remover()
+	}
+	return false
 }
 
 // WalkState describes how to proceed with an iteration of the tree (or partial tree).
@@ -91,14 +123,23 @@ func (a *Tree) Stats() *Stats {
 	return s
 }
 
+type writer interface {
+	io.Writer
+	io.ByteWriter
+	io.StringWriter
+}
+
 type node interface {
 	insert(key []byte, value interface{}) node
-	get(key []byte) node
+	trimPathStart(amount int)
+
+	getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool)
+
 	nodeValue() (value interface{}, exists bool)
 	walk(prefix []byte, callback ConsumerFn) WalkState
-	pretty(indent int, dest *bufio.Writer)
+
+	pretty(indent int, dest writer)
 	stats(s *Stats)
-	trimPathStart(amount int)
 }
 
 func newNode(key []byte, value interface{}) node {
@@ -111,8 +152,8 @@ func newNode(key []byte, value interface{}) node {
 type header struct {
 	// additional key values to this node (for path compression, lazy expansion)
 	path []byte
-	// number of populated children in this node [not for node256]
-	childCount byte
+	// number of populated children in this node
+	childCount int16
 	// if set, this node has a value associated with it, not just child nodes
 	// how/where the value is kept is node type dependent. node4/16/48 keep
 	// it in the last child, and have 1 less max children
@@ -159,17 +200,17 @@ func (n *node4) insert(key []byte, value interface{}) node {
 		n16.hasValue = true
 		return n16
 	}
-	for i := byte(0); i < n.header.childCount; i++ {
+	for i := int16(0); i < n.header.childCount; i++ {
 		if n.key[i] == key[0] {
 			n.children[i] = n.children[i].insert(key[1:], value)
 			return n
 		}
 	}
-	maxChildren := byte(4)
+	maxChildren := len(n.children)
 	if n.hasValue {
 		maxChildren--
 	}
-	if n.childCount < maxChildren {
+	if int(n.childCount) < maxChildren {
 		idx := n.childCount
 		n.key[idx] = key[0]
 		n.children[idx] = newNode(key[1:], value)
@@ -188,20 +229,38 @@ func (n *node4) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node4) get(key []byte) node {
+func (n *node4) removeValue() bool {
+	n.children[n4ValueIdx] = nil
+	n.hasValue = false
+	return n.childCount == 0
+}
+
+func (n *node4) childRemover(i int) func() bool {
+	return func() bool {
+		lastIdx := n.childCount - 1
+		n.children[i] = n.children[lastIdx]
+		n.children[lastIdx] = nil
+		n.key[i] = n.key[lastIdx]
+		n.key[lastIdx] = 0
+		n.childCount--
+		return n.childCount == 0 && !n.hasValue
+	}
+}
+
+func (n *node4) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
 	if !bytes.HasPrefix(key, n.path) {
-		return nil
+		return nil, nil, nil
 	}
 	key = key[len(n.path):]
 	if len(key) == 0 {
-		return n
+		return n, key, n.removeValue
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := 0; i < int(n.childCount); i++ {
 		if key[0] == n.key[i] {
-			return n.children[i].get(key[1:])
+			return n.children[i], key[1:], n.childRemover(i)
 		}
 	}
-	return nil
+	return nil, nil, nil
 }
 
 func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -213,10 +272,10 @@ func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
 		}
 	}
 	done := byte(0)
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		next := byte(255)
 		nextIdx := byte(255)
-		for j := byte(0); j < n.childCount; j++ {
+		for j := byte(0); j < byte(n.childCount); j++ {
 			k := n.key[j]
 			if k <= next && k >= done {
 				next = k
@@ -231,7 +290,7 @@ func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
-func (n *node4) pretty(indent int, w *bufio.Writer) {
+func (n *node4) pretty(indent int, w writer) {
 	w.WriteString("[n4] ")
 	writePath(n.path, w)
 	if n.hasValue {
@@ -252,7 +311,7 @@ func (n *node4) stats(s *Stats) {
 	if n.hasValue {
 		n.children[n4ValueIdx].stats(s)
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		n.children[i].stats(s)
 	}
 }
@@ -301,13 +360,13 @@ func (n *node16) insert(key []byte, value interface{}) node {
 		n48.hasValue = true
 		return n48
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		if n.key[i] == key[0] {
 			n.children[i] = n.children[i].insert(key[1:], value)
 			return n
 		}
 	}
-	maxChildren := byte(16)
+	maxChildren := int16(len(n.children))
 	if n.hasValue {
 		maxChildren--
 	}
@@ -334,20 +393,38 @@ func (n *node16) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node16) get(key []byte) node {
+func (n *node16) removeValue() bool {
+	n.children[n16ValueIdx] = nil
+	n.hasValue = false
+	return n.childCount == 0
+}
+
+func (n *node16) childRemover(i int) func() bool {
+	return func() bool {
+		lastIdx := n.childCount - 1
+		n.children[i] = n.children[lastIdx]
+		n.children[lastIdx] = nil
+		n.key[i] = n.key[lastIdx]
+		n.key[lastIdx] = 0
+		n.childCount--
+		return n.childCount == 0 && !n.hasValue
+	}
+}
+
+func (n *node16) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
 	if !bytes.HasPrefix(key, n.path) {
-		return nil
+		return nil, nil, nil
 	}
 	key = key[len(n.path):]
 	if len(key) == 0 {
-		return n
+		return n, key, n.removeValue
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := 0; i < int(n.childCount); i++ {
 		if key[0] == n.key[i] {
-			return n.children[i].get(key[1:])
+			return n.children[i], key[1:], n.childRemover(i)
 		}
 	}
-	return nil
+	return nil, nil, nil
 }
 
 func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -359,10 +436,10 @@ func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
 		}
 	}
 	done := byte(0)
-	for i := byte(0); i < n.childCount; i++ {
+	for i := byte(0); i < byte(n.childCount); i++ {
 		next := byte(255)
 		nextIdx := byte(255)
-		for j := byte(0); j < n.childCount; j++ {
+		for j := byte(0); j < byte(n.childCount); j++ {
 			k := n.key[j]
 			if k <= next && k >= done {
 				next = k
@@ -377,7 +454,7 @@ func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
-func (n *node16) pretty(indent int, w *bufio.Writer) {
+func (n *node16) pretty(indent int, w writer) {
 	w.WriteString("[n16] ")
 	writePath(n.path, w)
 	if n.hasValue {
@@ -398,7 +475,7 @@ func (n *node16) stats(s *Stats) {
 	if n.hasValue {
 		n.children[n16ValueIdx].stats(s)
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		n.children[i].stats(s)
 	}
 }
@@ -419,7 +496,7 @@ func newNode48(src *node16) *node48 {
 	if src.hasValue {
 		n.children[n48ValueIdx] = src.children[n16ValueIdx]
 	}
-	for i := byte(0); i < src.childCount; i++ {
+	for i := byte(0); i < byte(src.childCount); i++ {
 		n.key[src.key[i]] = i
 		n.children[i] = src.children[i]
 	}
@@ -456,7 +533,7 @@ func (n *node48) insert(key []byte, value interface{}) node {
 		n.children[slot] = n.children[slot].insert(key[1:], value)
 		return n
 	}
-	maxSlots := byte(len(n.children))
+	maxSlots := int16(len(n.children))
 	if n.hasValue {
 		maxSlots--
 	}
@@ -466,11 +543,12 @@ func (n *node48) insert(key []byte, value interface{}) node {
 	}
 	n256 := newNode256(n)
 	n256.children[key[0]] = newNode(key[1:], value)
+	n256.childCount++
 	return n256
 }
 
 func (n *node48) addChildLeaf(key []byte, val interface{}) {
-	n.key[key[0]] = n.childCount
+	n.key[key[0]] = byte(n.childCount)
 	n.children[n.childCount] = newNode(key[1:], val)
 	n.childCount++
 }
@@ -482,19 +560,40 @@ func (n *node48) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node48) get(key []byte) node {
+func (n *node48) removeValue() bool {
+	n.children[n48ValueIdx] = nil
+	n.hasValue = false
+	return n.childCount == 0
+}
+
+func (n *node48) childRemover(key byte, slot byte) func() bool {
+	return func() bool {
+		lastSlot := byte(n.childCount - 1)
+		n.children[slot] = n.children[lastSlot]
+		n.key[key] = n48NoChildForKey
+		for key, slot := range n.key {
+			if slot == lastSlot {
+				n.key[key] = slot
+				break
+			}
+		}
+		return n.childCount == 0 && !n.hasValue
+	}
+}
+
+func (n *node48) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
 	if !bytes.HasPrefix(key, n.path) {
-		return nil
+		return nil, nil, nil
 	}
 	key = key[len(n.path):]
 	if len(key) == 0 {
-		return n
+		return n, key, n.removeValue
 	}
 	idx := n.key[key[0]]
 	if idx == n48NoChildForKey {
-		return nil
+		return nil, nil, nil
 	}
-	return n.children[idx].get(key[1:])
+	return n.children[idx], key[1:], n.childRemover(key[0], idx)
 }
 
 func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -513,7 +612,7 @@ func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
-func (n *node48) pretty(indent int, w *bufio.Writer) {
+func (n *node48) pretty(indent int, w writer) {
 	w.WriteString("[n48] ")
 	writePath(n.path, w)
 	if n.hasValue {
@@ -523,10 +622,10 @@ func (n *node48) pretty(indent int, w *bufio.Writer) {
 		w.WriteByte('\n')
 	}
 	for k, slot := range n.key {
-		if slot > 0 {
+		if slot != n48NoChildForKey {
 			writeIndent(indent+2, w)
 			fmt.Fprintf(w, "0x%02X: ", k)
-			n.children[slot-1].pretty(indent+8, w)
+			n.children[slot].pretty(indent+8, w)
 		}
 	}
 }
@@ -536,7 +635,7 @@ func (n *node48) stats(s *Stats) {
 	if n.hasValue {
 		n.children[n48ValueIdx].stats(s)
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		n.children[i].stats(s)
 	}
 }
@@ -578,28 +677,43 @@ func (n *node256) insert(key []byte, value interface{}) node {
 	c := n.children[key[0]]
 	if c == nil {
 		n.children[key[0]] = newNode(key[1:], value)
+		n.childCount++
 	} else {
 		n.children[key[0]] = c.insert(key[1:], value)
 	}
 	return n
 }
 
-func (n *node256) get(key []byte) node {
+func (n *node256) removeValue() bool {
+	n.hasValue = false
+	n.value = nil
+	return n.childCount == 0
+}
+
+func (n *node256) childRemover(k byte) func() bool {
+	return func() bool {
+		n.children[k] = nil
+		n.childCount--
+		return n.childCount == 0 && !n.hasValue
+	}
+}
+
+func (n *node256) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
 	if !bytes.HasPrefix(key, n.path) {
-		return nil
+		return nil, nil, nil
 	}
 	key = key[len(n.path):]
 	if len(key) == 0 {
 		if n.hasValue {
-			return n
+			return n, key, n.removeValue
 		}
-		return nil
+		return nil, nil, nil
 	}
 	c := n.children[key[0]]
 	if c == nil {
-		return nil
+		return nil, nil, nil
 	}
-	return c.get(key[1:])
+	return c, key[1:], n.childRemover(key[0])
 }
 
 func (n *node256) nodeValue() (interface{}, bool) {
@@ -623,7 +737,7 @@ func (n *node256) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
-func (n *node256) pretty(indent int, w *bufio.Writer) {
+func (n *node256) pretty(indent int, w writer) {
 	w.WriteString("[n256] ")
 	writePath(n.path, w)
 	if n.hasValue {
@@ -703,18 +817,18 @@ func (l *leaf) nodeValue() (interface{}, bool) {
 	return l.value, true
 }
 
-func (l *leaf) get(key []byte) node {
+func (l *leaf) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
 	if bytes.Equal(key, l.path) {
-		return l
+		return l, []byte{}, func() bool { return true }
 	}
-	return nil
+	return nil, nil, nil
 }
 
 func (l *leaf) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return cb(append(prefix, l.path...), l.value)
 }
 
-func (l *leaf) pretty(indent int, w *bufio.Writer) {
+func (l *leaf) pretty(indent int, w writer) {
 	w.WriteString("[leaf] ")
 	writePath(l.path, w)
 	fmt.Fprintf(w, " value:%v\n", l.value)
@@ -724,7 +838,7 @@ func (l *leaf) stats(s *Stats) {
 	s.Keys++
 }
 
-func writePath(p []byte, w *bufio.Writer) {
+func writePath(p []byte, w writer) {
 	if len(p) > 0 {
 		w.WriteString(" [")
 		for i, k := range p {
@@ -739,7 +853,7 @@ func writePath(p []byte, w *bufio.Writer) {
 
 var spaces = bytes.Repeat([]byte{' '}, 16)
 
-func writeIndent(indent int, w *bufio.Writer) {
+func writeIndent(indent int, w io.Writer) {
 	if indent > len(spaces) {
 		spaces = bytes.Repeat([]byte{' '}, indent*2)
 	}

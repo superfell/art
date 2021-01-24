@@ -244,9 +244,7 @@ func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 	a := new(Tree)
 	defer func() {
 		if t.Failed() {
-			tree := &strings.Builder{}
-			a.PrettyPrint(tree)
-			t.Logf("tree\n%v", tree.String())
+			t.Logf("tree\n%v", pretty(a))
 		}
 	}()
 
@@ -278,6 +276,23 @@ func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 		act := a.Stats()
 		if !reflect.DeepEqual(*expectedStats, *act) {
 			t.Errorf("Unexpected stats of %#v, expecting %#v", *act, *expectedStats)
+		}
+	}
+
+	deletes := append([]keyVal{}, inserts...)
+	rnd.Shuffle(len(deletes), func(i, j int) {
+		deletes[i], deletes[j] = deletes[j], deletes[i]
+	})
+	for _, kv := range deletes {
+		t.Logf("About to delete key %s", hexPath(kv.key))
+		before := pretty(a)
+		a.Delete(kv.key)
+		store.delete(kv.key)
+		hasKeyVals(t, a, store.ordered())
+		if t.Failed() {
+			t.Logf("just deleted key %v", hexPath(kv.key))
+			t.Logf("tree before delete\n%v", before)
+			t.FailNow() // no point to keep going
 		}
 	}
 }
@@ -316,14 +331,19 @@ func reverse(kv []keyVal) []keyVal {
 }
 
 func hasKeyVals(t *testing.T, a *Tree, exp []keyVal) {
+	t.Helper()
 	// verifies that the tree matches the supplied set of kv's by using the Walk fn
 	i := 0
 	a.Walk(func(k []byte, v interface{}) WalkState {
-		if !bytes.Equal(exp[i].key, k) {
-			t.Errorf("key %d was %v but expecting %v", i, k, exp[i].key)
-		}
-		if v != exp[i].val {
-			t.Errorf("key %v expecting value %v but was %v", exp[i].key, exp[i].val, v)
+		if i >= len(exp) {
+			t.Errorf("Got more callbacks than expected, additional k/v is %v / %v", k, v)
+		} else {
+			if !bytes.Equal(exp[i].key, k) {
+				t.Errorf("key %d was %v but expecting %v", i, k, exp[i].key)
+			}
+			if v != exp[i].val {
+				t.Errorf("key %v expecting value %v but was %v", exp[i].key, exp[i].val, v)
+			}
 		}
 		i++
 		return Continue
@@ -335,10 +355,10 @@ func hasKeyVals(t *testing.T, a *Tree, exp []keyVal) {
 	for _, kv := range exp {
 		actual, exists := a.Get(kv.key)
 		if !exists {
-			t.Errorf("key %v should have a value, but Get() says it doesn't", exists)
+			t.Errorf("key %v should have a value, but Get() says it doesn't", kv.key)
 		}
 		if actual != kv.val {
-			t.Errorf("value %v for key %v is not the expected value %v", actual, kv.key, kv.val)
+			t.Errorf("value %v for key %v is not the expected value of %v", actual, kv.key, kv.val)
 		}
 	}
 }
@@ -359,6 +379,16 @@ func (s *kvStore) put(kv keyVal) {
 	s.kvs = append(s.kvs, kv)
 }
 
+func (s *kvStore) delete(k []byte) {
+	for i := 0; i < len(s.kvs); i++ {
+		if bytes.Equal(k, s.kvs[i].key) {
+			s.kvs[i] = s.kvs[len(s.kvs)-1]
+			s.kvs = s.kvs[:len(s.kvs)-1]
+			return
+		}
+	}
+}
+
 func (s *kvStore) get(k []byte) (val interface{}, exists bool) {
 	for i := 0; i < len(s.kvs); i++ {
 		if bytes.Equal(k, s.kvs[i].key) {
@@ -374,4 +404,16 @@ func (s *kvStore) ordered() []keyVal {
 		return bytes.Compare(s.kvs[i].key, s.kvs[j].key) == -1
 	})
 	return s.kvs
+}
+
+func pretty(a *Tree) string {
+	tree := &strings.Builder{}
+	a.PrettyPrint(tree)
+	return tree.String()
+}
+
+func hexPath(p []byte) string {
+	w := &strings.Builder{}
+	writePath(p, w)
+	return w.String()
 }
