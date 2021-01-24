@@ -40,7 +40,7 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 		if len(key) == 0 {
 			return curr.nodeValue()
 		}
-		next, remainingKey, _ := curr.getNextNode(key)
+		next, remainingKey := curr.getNextNode(key)
 		if next == nil {
 			return nil, false
 		}
@@ -66,15 +66,15 @@ func (a *Tree) delete(n node, key []byte) bool {
 		return false
 	}
 	key = key[len(h.path):]
-	next, remainingKey, remover := n.getNextNode(key)
+	if len(key) == 0 {
+		return n.removeValue()
+	}
+	next, remainingKey := n.getNextNode(key)
 	if next == nil {
 		return false
 	}
-	if next == n {
-		return remover()
-	}
 	if a.delete(next, remainingKey) {
-		return remover()
+		return n.removeChild(key[0])
 	}
 	return false
 }
@@ -144,7 +144,10 @@ type node interface {
 	insert(key []byte, value interface{}) node
 	trimPathStart(amount int)
 
-	getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool)
+	getNextNode(key []byte) (next node, remainingKey []byte)
+
+	removeValue() bool
+	removeChild(key byte) bool
 
 	nodeValue() (value interface{}, exists bool)
 	walk(prefix []byte, callback ConsumerFn) WalkState
@@ -250,28 +253,28 @@ func (n *node4) removeValue() bool {
 	return n.childCount == 0
 }
 
-func (n *node4) childRemover(i int) func() bool {
-	return func() bool {
-		lastIdx := n.childCount - 1
-		n.children[i] = n.children[lastIdx]
-		n.children[lastIdx] = nil
-		n.key[i] = n.key[lastIdx]
-		n.key[lastIdx] = 0
-		n.childCount--
-		return n.childCount == 0 && !n.hasValue
-	}
-}
-
-func (n *node4) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if len(key) == 0 {
-		return n, key, n.removeValue
-	}
+func (n *node4) removeChild(k byte) bool {
+	lastIdx := n.childCount - 1
 	for i := 0; i < int(n.childCount); i++ {
-		if key[0] == n.key[i] {
-			return n.children[i], key[1:], n.childRemover(i)
+		if k == n.key[i] {
+			n.children[i] = n.children[lastIdx]
+			n.children[lastIdx] = nil
+			n.key[i] = n.key[lastIdx]
+			n.key[lastIdx] = 0
+			n.childCount--
+			return n.childCount == 0 && !n.hasValue
 		}
 	}
-	return nil, nil, nil
+	return false
+}
+
+func (n *node4) getNextNode(key []byte) (next node, remainingKey []byte) {
+	for i := 0; i < int(n.childCount); i++ {
+		if key[0] == n.key[i] {
+			return n.children[i], key[1:]
+		}
+	}
+	return nil, nil
 }
 
 func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -414,28 +417,28 @@ func (n *node16) removeValue() bool {
 	return n.childCount == 0
 }
 
-func (n *node16) childRemover(i int) func() bool {
-	return func() bool {
-		lastIdx := n.childCount - 1
-		n.children[i] = n.children[lastIdx]
-		n.children[lastIdx] = nil
-		n.key[i] = n.key[lastIdx]
-		n.key[lastIdx] = 0
-		n.childCount--
-		return n.childCount == 0 && !n.hasValue
-	}
-}
-
-func (n *node16) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if len(key) == 0 {
-		return n, key, n.removeValue
-	}
+func (n *node16) removeChild(k byte) bool {
+	lastIdx := n.childCount - 1
 	for i := 0; i < int(n.childCount); i++ {
-		if key[0] == n.key[i] {
-			return n.children[i], key[1:], n.childRemover(i)
+		if k == n.key[i] {
+			n.children[i] = n.children[lastIdx]
+			n.children[lastIdx] = nil
+			n.key[i] = n.key[lastIdx]
+			n.key[lastIdx] = 0
+			n.childCount--
+			return n.childCount == 0 && !n.hasValue
 		}
 	}
-	return nil, nil, nil
+	return false
+}
+
+func (n *node16) getNextNode(key []byte) (next node, remainingKey []byte) {
+	for i := 0; i < int(n.childCount); i++ {
+		if key[0] == n.key[i] {
+			return n.children[i], key[1:]
+		}
+	}
+	return nil, nil
 }
 
 func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -581,30 +584,34 @@ func (n *node48) removeValue() bool {
 	return n.childCount == 0
 }
 
-func (n *node48) childRemover(key byte, slot byte) func() bool {
-	return func() bool {
-		lastSlot := byte(n.childCount - 1)
-		n.children[slot] = n.children[lastSlot]
-		n.key[key] = n48NoChildForKey
-		for key, slot := range n.key {
-			if slot == lastSlot {
-				n.key[key] = slot
-				break
-			}
+// keyForSlot returns the key value for the supplied child slot number.
+func (n *node48) keyForSlot(slot byte) int {
+	for k, s := range n.key {
+		if s == slot {
+			return k
 		}
-		return n.childCount == 0 && !n.hasValue
 	}
+	panic("n48.keyForSlot called with unused slot number")
 }
 
-func (n *node48) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if len(key) == 0 {
-		return n, key, n.removeValue
-	}
+func (n *node48) removeChild(key byte) bool {
+	lastSlot := byte(n.childCount - 1)
+	keyOfLastSlot := n.keyForSlot(lastSlot)
+	slot := n.key[key]
+
+	n.children[slot] = n.children[lastSlot]
+	n.key[keyOfLastSlot] = slot
+	n.key[key] = n48NoChildForKey
+	n.childCount--
+	return n.childCount == 0 && !n.hasValue
+}
+
+func (n *node48) getNextNode(key []byte) (next node, remainingKey []byte) {
 	idx := n.key[key[0]]
 	if idx == n48NoChildForKey {
-		return nil, nil, nil
+		return nil, nil
 	}
-	return n.children[idx], key[1:], n.childRemover(key[0], idx)
+	return n.children[idx], key[1:]
 }
 
 func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -701,26 +708,18 @@ func (n *node256) removeValue() bool {
 	return n.childCount == 0
 }
 
-func (n *node256) childRemover(k byte) func() bool {
-	return func() bool {
-		n.children[k] = nil
-		n.childCount--
-		return n.childCount == 0 && !n.hasValue
-	}
+func (n *node256) removeChild(k byte) bool {
+	n.children[k] = nil
+	n.childCount--
+	return n.childCount == 0 && !n.hasValue
 }
 
-func (n *node256) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if len(key) == 0 {
-		if n.hasValue {
-			return n, key, n.removeValue
-		}
-		return nil, nil, nil
-	}
+func (n *node256) getNextNode(key []byte) (next node, remainingKey []byte) {
 	c := n.children[key[0]]
 	if c == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
-	return c, key[1:], n.childRemover(key[0])
+	return c, key[1:]
 }
 
 func (n *node256) nodeValue() (interface{}, bool) {
@@ -831,11 +830,16 @@ func (l *leaf) nodeValue() (interface{}, bool) {
 	return l.value, true
 }
 
-func (l *leaf) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if len(key) == 0 {
-		return l, []byte{}, func() bool { return true }
-	}
-	return nil, nil, nil
+func (l *leaf) removeValue() bool {
+	return true
+}
+
+func (l *leaf) removeChild(key byte) bool {
+	panic("removeChild called on leaf")
+}
+
+func (l *leaf) getNextNode(key []byte) (next node, remainingKey []byte) {
+	return nil, nil
 }
 
 func (l *leaf) walk(prefix []byte, cb ConsumerFn) WalkState {
