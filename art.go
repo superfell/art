@@ -149,7 +149,7 @@ func newNode(key []byte, value interface{}) node {
 	}
 }
 
-type header struct {
+type nodeHeader struct {
 	// additional key values to this node (for path compression, lazy expansion)
 	path []byte
 	// number of populated children in this node
@@ -160,7 +160,7 @@ type header struct {
 	hasValue bool
 }
 
-func (h *header) trimPathStart(amount int) {
+func (h *nodeHeader) trimPathStart(amount int) {
 	h.path = h.path[amount:]
 }
 
@@ -170,7 +170,7 @@ const n16ValueIdx = 15
 const n48ValueIdx = 47
 
 type node4 struct {
-	header
+	nodeHeader
 	key      [4]byte
 	children [4]node
 }
@@ -185,13 +185,13 @@ func (n *node4) insert(key []byte, value interface{}) node {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
 		// if we already have a value, then just update it
-		if n.header.hasValue {
+		if n.nodeHeader.hasValue {
 			n.children[n4ValueIdx].insert(key, value)
 			return n
 		}
-		if n.header.childCount < 4 {
+		if n.nodeHeader.childCount < 4 {
 			n.children[n4ValueIdx] = newNode(key, value)
-			n.header.hasValue = true
+			n.nodeHeader.hasValue = true
 			return n
 		}
 		// we're full, need to grow
@@ -200,7 +200,7 @@ func (n *node4) insert(key []byte, value interface{}) node {
 		n16.hasValue = true
 		return n16
 	}
-	for i := int16(0); i < n.header.childCount; i++ {
+	for i := int16(0); i < n.nodeHeader.childCount; i++ {
 		if n.key[i] == key[0] {
 			n.children[i] = n.children[i].insert(key[1:], value)
 			return n
@@ -214,7 +214,7 @@ func (n *node4) insert(key []byte, value interface{}) node {
 		idx := n.childCount
 		n.key[idx] = key[0]
 		n.children[idx] = newNode(key[1:], value)
-		n.header.childCount++
+		n.nodeHeader.childCount++
 		return n
 	}
 	n16 := newNode16(n)
@@ -317,15 +317,15 @@ func (n *node4) stats(s *Stats) {
 }
 
 type node16 struct {
-	header
+	nodeHeader
 	key      [16]byte
 	children [16]node
 }
 
 // constructs a new node16 from a node4.
 func newNode16(src *node4) *node16 {
-	n := node16{header: src.header}
-	for i := 0; i < int(src.header.childCount); i++ {
+	n := node16{nodeHeader: src.nodeHeader}
+	for i := 0; i < int(src.nodeHeader.childCount); i++ {
 		n.key[i] = src.key[i]
 		n.children[i] = src.children[i]
 	}
@@ -345,13 +345,13 @@ func (n *node16) insert(key []byte, value interface{}) node {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
 		// if we already have a value, then just update it
-		if n.header.hasValue {
+		if n.nodeHeader.hasValue {
 			n.children[n16ValueIdx].insert(key, value)
 			return n
 		}
-		if n.header.childCount < 16 {
+		if n.nodeHeader.childCount < 16 {
 			n.children[n16ValueIdx] = newNode(key, value)
-			n.header.hasValue = true
+			n.nodeHeader.hasValue = true
 			return n
 		}
 		// we're full, need to grow
@@ -383,7 +383,7 @@ func (n *node16) addChildLeaf(key []byte, val interface{}) {
 	idx := n.childCount
 	n.key[idx] = key[0]
 	n.children[idx] = newNode(key[1:], val)
-	n.header.childCount++
+	n.nodeHeader.childCount++
 }
 
 func (n *node16) nodeValue() (interface{}, bool) {
@@ -483,13 +483,13 @@ func (n *node16) stats(s *Stats) {
 const n48NoChildForKey byte = 255
 
 type node48 struct {
-	header
+	nodeHeader
 	key      [256]byte // index into children, 255 for no child
 	children [48]node
 }
 
 func newNode48(src *node16) *node48 {
-	n := &node48{header: src.header}
+	n := &node48{nodeHeader: src.nodeHeader}
 	for i := range n.key {
 		n.key[i] = n48NoChildForKey
 	}
@@ -513,12 +513,12 @@ func (n *node48) insert(key []byte, value interface{}) node {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
 		// if we already have a value, then just update it
-		if n.header.hasValue {
+		if n.nodeHeader.hasValue {
 			n.children[n48ValueIdx].insert(key, value)
 			return n
 		}
-		if n.header.childCount < 48 {
-			n.header.hasValue = true
+		if n.nodeHeader.childCount < 48 {
+			n.nodeHeader.hasValue = true
 			n.children[n48ValueIdx] = newNode(key, value)
 			return n
 		}
@@ -643,11 +643,11 @@ func (n *node48) stats(s *Stats) {
 type node256 struct {
 	children [256]node
 	value    interface{}
-	header
+	nodeHeader
 }
 
 func newNode256(src *node48) *node256 {
-	n := &node256{header: src.header}
+	n := &node256{nodeHeader: src.nodeHeader}
 	if src.hasValue {
 		var exists bool
 		n.value, exists = src.children[n48ValueIdx].nodeValue()
