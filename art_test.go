@@ -10,6 +10,27 @@ import (
 	"testing"
 )
 
+func Test_JoinSlices(t *testing.T) {
+	kEmpty := []byte(nil)
+	k1 := []byte{15}
+	k5 := []byte{1, 2, 3, 4, 5}
+	test := func(a, b, c, exp []byte) {
+		t.Helper()
+		act := joinSlices(a, b, c)
+		if !bytes.Equal(act, exp) {
+			t.Errorf("joinSlice(%v,%v,%v) expected to generate %v but was %v", a, b, c, exp, act)
+		}
+	}
+	test(kEmpty, kEmpty, kEmpty, kEmpty)
+	test(k1, kEmpty, kEmpty, k1)
+	test(kEmpty, k5, kEmpty, k5)
+	test(kEmpty, kEmpty, k1, k1)
+	test(kEmpty, k1, k5, []byte{15, 1, 2, 3, 4, 5})
+	test(k1, kEmpty, k5, []byte{15, 1, 2, 3, 4, 5})
+	test(k1, k5, kEmpty, []byte{15, 1, 2, 3, 4, 5})
+	test(k1, k5, []byte{22, 23}, []byte{15, 1, 2, 3, 4, 5, 22, 23})
+}
+
 func Test_Empty(t *testing.T) {
 	testArt(t, []keyVal{}, &Stats{})
 }
@@ -19,7 +40,7 @@ func Test_OverwriteWithSameKey(t *testing.T) {
 		kvs("one", "one"),
 		kvs("two", "two"),
 		kvs("one", "three"),
-	}, nil)
+	}, &Stats{Node4s: 1, Keys: 2})
 }
 
 func Test_InsertOnLeaf(t *testing.T) {
@@ -27,7 +48,7 @@ func Test_InsertOnLeaf(t *testing.T) {
 		kvs("123", "abc"),
 		// now insert something that would add a child to the leaf above
 		kvs("1234", "abcd"),
-	}, nil)
+	}, &Stats{Node4s: 1, Keys: 2})
 }
 
 func Test_LeafPathToNToLeafPath(t *testing.T) {
@@ -37,51 +58,104 @@ func Test_LeafPathToNToLeafPath(t *testing.T) {
 	}, &Stats{Node4s: 1, Keys: 2})
 }
 
-func Test_MultipleInserts(t *testing.T) {
+func Test_SimpleMultipleInserts(t *testing.T) {
 	testArt(t, []keyVal{
 		kvs("123", "abc"),
 		kvs("456", "abcd"),
 		kvs("1211", "def"),
-	}, nil)
+	}, &Stats{Node4s: 2, Keys: 3})
 }
 
-func Test_Grow4to16(t *testing.T) {
-	keyVals := []keyVal{}
-	k := []byte{65, 66}
-	for i := byte(0); i < 10; i++ {
-		keyVals = append(keyVals, kv(append(k, i), i))
-	}
-	keyVals = append(keyVals, kv(append(k, 5, 10), 100))
-	testArt(t, keyVals, &Stats{Node4s: 1, Node16s: 1, Keys: 11})
+type simpleCase struct {
+	children int
+	stats    *Stats
 }
 
-func Test_Node4FullAddValue(t *testing.T) {
-	testArt(t, []keyVal{
-		kvs("11", "1"),
-		kvs("12", "2"),
-		kvs("13", "3"),
-		kvs("14", "4"),
-		kvs("1", "5"),
-	}, &Stats{Node16s: 1, Keys: 5})
-}
-func Test_GrowTo48(t *testing.T) {
-	keyVals := []keyVal{}
-	k := []byte{65, 66}
-	for i := byte(0); i < 40; i++ {
-		keyVals = append(keyVals, kv(append(k, i), i))
+func Test_GrowNode(t *testing.T) {
+	cases := []simpleCase{
+		// test that the node is grown to the relevant type
+		{1, &Stats{Keys: 1}},
+		{2, &Stats{Node4s: 1, Keys: 2}},
+		{12, &Stats{Node16s: 1, Keys: 12}},
+		{40, &Stats{Node48s: 1, Keys: 40}},
+		{200, &Stats{Node256s: 1, Keys: 200}},
 	}
-	keyVals = append(keyVals, kv(append(k, 5, 10), 100))
-	testArt(t, keyVals, &Stats{Node48s: 1, Node4s: 1, Keys: 41})
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
+			inserts := []keyVal{}
+			for i := 0; i < tc.children; i++ {
+				inserts = append(inserts, kv([]byte{1, byte(i)}, i))
+			}
+			testArt(t, inserts, tc.stats)
+		})
+	}
 }
 
-func Test_GrowTo256(t *testing.T) {
-	keyVals := []keyVal{}
-	k := []byte{65, 66, 67}
-	for i := 0; i < 256; i++ {
-		keyVals = append(keyVals, kv(append(k, byte(i)), i))
+func Test_GrowNodeWithMixedChildren(t *testing.T) {
+	cases := []simpleCase{
+		// test that the node is grown to the relevant type, while the node contains
+		// a mixed of leafs & nodes
+		{2, &Stats{Node4s: 2, Keys: 4}},
+		{12, &Stats{Node4s: 2, Node16s: 1, Keys: 14}},
+		{40, &Stats{Node4s: 2, Node48s: 1, Keys: 42}},
+		{200, &Stats{Node4s: 2, Node256s: 1, Keys: 202}},
 	}
-	keyVals = append(keyVals, kv(append(k, 5, 10), 100))
-	testArt(t, keyVals, &Stats{Node256s: 1, Node4s: 1, Keys: 257})
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
+			inserts := []keyVal{}
+			for i := 0; i < tc.children; i++ {
+				inserts = append(inserts, kv([]byte{1, byte(i)}, i))
+			}
+			inserts = append(inserts, kv([]byte{1, 1, 10, 4}, "a"))
+			inserts = append(inserts, kv([]byte{1, 11, 10, 4}, "b"))
+			testArt(t, inserts, tc.stats)
+		})
+	}
+}
+
+func Test_SetValueOnExistingNode(t *testing.T) {
+	cases := []simpleCase{
+		// set value on an existing node with space for it
+		{2, &Stats{Node4s: 1, Keys: 3}},
+		{12, &Stats{Node16s: 1, Keys: 13}},
+		{40, &Stats{Node48s: 1, Keys: 41}},
+		{200, &Stats{Node256s: 1, Keys: 201}},
+
+		// set value on an existing node that is already full and should grow
+		{4, &Stats{Node16s: 1, Keys: 5}},
+		{16, &Stats{Node48s: 1, Keys: 17}},
+		{48, &Stats{Node256s: 1, Keys: 49}},
+		{256, &Stats{Node256s: 1, Keys: 257}},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
+			inserts := []keyVal{}
+			for i := 0; i < tc.children; i++ {
+				inserts = append(inserts, kv([]byte{1, byte(i)}, i))
+			}
+			inserts = append(inserts, kv([]byte{1}, "value"))
+			testArt(t, inserts, tc.stats)
+		})
+	}
+}
+
+func Test_NodeInsertSplitsCompressedPath(t *testing.T) {
+	cases := []simpleCase{
+		{2, &Stats{Node4s: 2, Keys: 3}},
+		{12, &Stats{Node4s: 1, Node16s: 1, Keys: 13}},
+		{40, &Stats{Node4s: 1, Node48s: 1, Keys: 41}},
+		{200, &Stats{Node4s: 1, Node256s: 1, Keys: 201}},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
+			inserts := []keyVal{}
+			for i := 0; i < tc.children; i++ {
+				inserts = append(inserts, kv([]byte{1, 2, 3, 4, 5, 6, 7, byte(i + 10)}, i))
+			}
+			inserts = append(inserts, kv([]byte{1, 2, 3}, "123"))
+			testArt(t, inserts, tc.stats)
+		})
+	}
 }
 
 func Test_GrowWithPrefixValue(t *testing.T) {
@@ -93,7 +167,7 @@ func Test_GrowWithPrefixValue(t *testing.T) {
 	for i := 0; i < 256; i++ {
 		keyVals = append(keyVals, kv([]byte{'B', byte(i)}, i))
 	}
-	testArt(t, keyVals, nil)
+	testArt(t, keyVals, &Stats{Node256s: 1, Node4s: 1, Keys: 259})
 }
 
 func Test_KeyWithZeros(t *testing.T) {
@@ -194,6 +268,16 @@ func Test_MoreWalk(t *testing.T) {
 					t.Errorf("Unexpected number of callbacks with early termination, got %d, expecting %d", i, sz-1)
 				}
 			})
+			t.Run("Stop After First Key", func(t *testing.T) {
+				i := 0
+				a.Walk(func(k []byte, v interface{}) WalkState {
+					i++
+					return Stop
+				})
+				if i != 1 {
+					t.Errorf("Unexpected number of callbacks with early termination, got %d, expecting %d", i, 1)
+				}
+			})
 			t.Run("With NodeValues", func(t *testing.T) {
 				for i := 0; i < sz; i++ {
 					a.Put(append(baseK, byte(i), byte(i)), i*i)
@@ -277,6 +361,9 @@ func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 		if !reflect.DeepEqual(*expectedStats, *act) {
 			t.Errorf("Unexpected stats of %#v, expecting %#v", *act, *expectedStats)
 		}
+	}
+	if t.Failed() {
+		t.FailNow() // no point to keep going
 	}
 
 	deletes := append([]keyVal{}, inserts...)
