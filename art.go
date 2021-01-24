@@ -30,11 +30,53 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 	if a.root == nil {
 		return nil, false
 	}
-	n := a.root.get(key)
-	if n == nil {
-		return nil, false
+	curr := a.root
+	for {
+		h := curr.header()
+		if !bytes.HasPrefix(key, h.path) {
+			return nil, false
+		}
+		key = key[len(h.path):]
+		if len(key) == 0 {
+			return curr.nodeValue()
+		}
+		next, remainingKey := curr.getNextNode(key)
+		if next == nil {
+			return nil, false
+		}
+		curr = next
+		key = remainingKey
 	}
-	return n.nodeValue()
+}
+
+// Delete removes the value associated with the supplied key if it exists. Its okay to
+// call Delete with a key that doesn't exist.
+func (a *Tree) Delete(key []byte) {
+	if a.root == nil {
+		return
+	}
+	if a.delete(a.root, key) {
+		a.root = nil
+	}
+}
+
+func (a *Tree) delete(n node, key []byte) bool {
+	h := n.header()
+	if !bytes.HasPrefix(key, h.path) {
+		return false
+	}
+	key = key[len(h.path):]
+	if len(key) == 0 {
+		return n.removeValue()
+	}
+	next, remainingKey := n.getNextNode(key)
+	if next == nil {
+		return false
+	}
+	if a.delete(next, remainingKey) {
+		return n.removeChild(key[0])
+	}
+	return false
 }
 
 // WalkState describes how to proceed with an iteration of the tree (or partial tree).
@@ -91,14 +133,27 @@ func (a *Tree) Stats() *Stats {
 	return s
 }
 
+type writer interface {
+	io.Writer
+	io.ByteWriter
+	io.StringWriter
+}
+
 type node interface {
+	header() nodeHeader
 	insert(key []byte, value interface{}) node
-	get(key []byte) node
+	trimPathStart(amount int)
+
+	getNextNode(key []byte) (next node, remainingKey []byte)
+
+	removeValue() bool
+	removeChild(key byte) bool
+
 	nodeValue() (value interface{}, exists bool)
 	walk(prefix []byte, callback ConsumerFn) WalkState
-	pretty(indent int, dest *bufio.Writer)
+
+	pretty(indent int, dest writer)
 	stats(s *Stats)
-	trimPathStart(amount int)
 }
 
 func newNode(key []byte, value interface{}) node {
@@ -108,18 +163,18 @@ func newNode(key []byte, value interface{}) node {
 	}
 }
 
-type header struct {
+type nodeHeader struct {
 	// additional key values to this node (for path compression, lazy expansion)
 	path []byte
-	// number of populated children in this node [not for node256]
-	childCount byte
+	// number of populated children in this node
+	childCount int16
 	// if set, this node has a value associated with it, not just child nodes
 	// how/where the value is kept is node type dependent. node4/16/48 keep
 	// it in the last child, and have 1 less max children
 	hasValue bool
 }
 
-func (h *header) trimPathStart(amount int) {
+func (h *nodeHeader) trimPathStart(amount int) {
 	h.path = h.path[amount:]
 }
 
@@ -129,9 +184,13 @@ const n16ValueIdx = 15
 const n48ValueIdx = 47
 
 type node4 struct {
-	header
+	nodeHeader
 	key      [4]byte
 	children [4]node
+}
+
+func (n *node4) header() nodeHeader {
+	return n.nodeHeader
 }
 
 func (n *node4) insert(key []byte, value interface{}) node {
@@ -144,13 +203,13 @@ func (n *node4) insert(key []byte, value interface{}) node {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
 		// if we already have a value, then just update it
-		if n.header.hasValue {
+		if n.nodeHeader.hasValue {
 			n.children[n4ValueIdx].insert(key, value)
 			return n
 		}
-		if n.header.childCount < 4 {
+		if n.nodeHeader.childCount < 4 {
 			n.children[n4ValueIdx] = newNode(key, value)
-			n.header.hasValue = true
+			n.nodeHeader.hasValue = true
 			return n
 		}
 		// we're full, need to grow
@@ -159,21 +218,21 @@ func (n *node4) insert(key []byte, value interface{}) node {
 		n16.hasValue = true
 		return n16
 	}
-	for i := byte(0); i < n.header.childCount; i++ {
+	for i := int16(0); i < n.nodeHeader.childCount; i++ {
 		if n.key[i] == key[0] {
 			n.children[i] = n.children[i].insert(key[1:], value)
 			return n
 		}
 	}
-	maxChildren := byte(4)
+	maxChildren := len(n.children)
 	if n.hasValue {
 		maxChildren--
 	}
-	if n.childCount < maxChildren {
+	if int(n.childCount) < maxChildren {
 		idx := n.childCount
 		n.key[idx] = key[0]
 		n.children[idx] = newNode(key[1:], value)
-		n.header.childCount++
+		n.nodeHeader.childCount++
 		return n
 	}
 	n16 := newNode16(n)
@@ -188,20 +247,34 @@ func (n *node4) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node4) get(key []byte) node {
-	if !bytes.HasPrefix(key, n.path) {
-		return nil
-	}
-	key = key[len(n.path):]
-	if len(key) == 0 {
-		return n
-	}
-	for i := byte(0); i < n.childCount; i++ {
-		if key[0] == n.key[i] {
-			return n.children[i].get(key[1:])
+func (n *node4) removeValue() bool {
+	n.children[n4ValueIdx] = nil
+	n.hasValue = false
+	return n.childCount == 0
+}
+
+func (n *node4) removeChild(k byte) bool {
+	lastIdx := n.childCount - 1
+	for i := 0; i < int(n.childCount); i++ {
+		if k == n.key[i] {
+			n.children[i] = n.children[lastIdx]
+			n.children[lastIdx] = nil
+			n.key[i] = n.key[lastIdx]
+			n.key[lastIdx] = 0
+			n.childCount--
+			return n.childCount == 0 && !n.hasValue
 		}
 	}
-	return nil
+	return false
+}
+
+func (n *node4) getNextNode(key []byte) (next node, remainingKey []byte) {
+	for i := 0; i < int(n.childCount); i++ {
+		if key[0] == n.key[i] {
+			return n.children[i], key[1:]
+		}
+	}
+	return nil, nil
 }
 
 func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -213,10 +286,10 @@ func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
 		}
 	}
 	done := byte(0)
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		next := byte(255)
 		nextIdx := byte(255)
-		for j := byte(0); j < n.childCount; j++ {
+		for j := byte(0); j < byte(n.childCount); j++ {
 			k := n.key[j]
 			if k <= next && k >= done {
 				next = k
@@ -231,7 +304,7 @@ func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
-func (n *node4) pretty(indent int, w *bufio.Writer) {
+func (n *node4) pretty(indent int, w writer) {
 	w.WriteString("[n4] ")
 	writePath(n.path, w)
 	if n.hasValue {
@@ -252,21 +325,25 @@ func (n *node4) stats(s *Stats) {
 	if n.hasValue {
 		n.children[n4ValueIdx].stats(s)
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		n.children[i].stats(s)
 	}
 }
 
 type node16 struct {
-	header
+	nodeHeader
 	key      [16]byte
 	children [16]node
 }
 
+func (n *node16) header() nodeHeader {
+	return n.nodeHeader
+}
+
 // constructs a new node16 from a node4.
 func newNode16(src *node4) *node16 {
-	n := node16{header: src.header}
-	for i := 0; i < int(src.header.childCount); i++ {
+	n := node16{nodeHeader: src.nodeHeader}
+	for i := 0; i < int(src.nodeHeader.childCount); i++ {
 		n.key[i] = src.key[i]
 		n.children[i] = src.children[i]
 	}
@@ -286,13 +363,13 @@ func (n *node16) insert(key []byte, value interface{}) node {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
 		// if we already have a value, then just update it
-		if n.header.hasValue {
+		if n.nodeHeader.hasValue {
 			n.children[n16ValueIdx].insert(key, value)
 			return n
 		}
-		if n.header.childCount < 16 {
+		if n.nodeHeader.childCount < 16 {
 			n.children[n16ValueIdx] = newNode(key, value)
-			n.header.hasValue = true
+			n.nodeHeader.hasValue = true
 			return n
 		}
 		// we're full, need to grow
@@ -301,13 +378,13 @@ func (n *node16) insert(key []byte, value interface{}) node {
 		n48.hasValue = true
 		return n48
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		if n.key[i] == key[0] {
 			n.children[i] = n.children[i].insert(key[1:], value)
 			return n
 		}
 	}
-	maxChildren := byte(16)
+	maxChildren := int16(len(n.children))
 	if n.hasValue {
 		maxChildren--
 	}
@@ -324,7 +401,7 @@ func (n *node16) addChildLeaf(key []byte, val interface{}) {
 	idx := n.childCount
 	n.key[idx] = key[0]
 	n.children[idx] = newNode(key[1:], val)
-	n.header.childCount++
+	n.nodeHeader.childCount++
 }
 
 func (n *node16) nodeValue() (interface{}, bool) {
@@ -334,20 +411,34 @@ func (n *node16) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node16) get(key []byte) node {
-	if !bytes.HasPrefix(key, n.path) {
-		return nil
-	}
-	key = key[len(n.path):]
-	if len(key) == 0 {
-		return n
-	}
-	for i := byte(0); i < n.childCount; i++ {
-		if key[0] == n.key[i] {
-			return n.children[i].get(key[1:])
+func (n *node16) removeValue() bool {
+	n.children[n16ValueIdx] = nil
+	n.hasValue = false
+	return n.childCount == 0
+}
+
+func (n *node16) removeChild(k byte) bool {
+	lastIdx := n.childCount - 1
+	for i := 0; i < int(n.childCount); i++ {
+		if k == n.key[i] {
+			n.children[i] = n.children[lastIdx]
+			n.children[lastIdx] = nil
+			n.key[i] = n.key[lastIdx]
+			n.key[lastIdx] = 0
+			n.childCount--
+			return n.childCount == 0 && !n.hasValue
 		}
 	}
-	return nil
+	return false
+}
+
+func (n *node16) getNextNode(key []byte) (next node, remainingKey []byte) {
+	for i := 0; i < int(n.childCount); i++ {
+		if key[0] == n.key[i] {
+			return n.children[i], key[1:]
+		}
+	}
+	return nil, nil
 }
 
 func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -359,10 +450,10 @@ func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
 		}
 	}
 	done := byte(0)
-	for i := byte(0); i < n.childCount; i++ {
+	for i := byte(0); i < byte(n.childCount); i++ {
 		next := byte(255)
 		nextIdx := byte(255)
-		for j := byte(0); j < n.childCount; j++ {
+		for j := byte(0); j < byte(n.childCount); j++ {
 			k := n.key[j]
 			if k <= next && k >= done {
 				next = k
@@ -377,7 +468,7 @@ func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
-func (n *node16) pretty(indent int, w *bufio.Writer) {
+func (n *node16) pretty(indent int, w writer) {
 	w.WriteString("[n16] ")
 	writePath(n.path, w)
 	if n.hasValue {
@@ -398,7 +489,7 @@ func (n *node16) stats(s *Stats) {
 	if n.hasValue {
 		n.children[n16ValueIdx].stats(s)
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		n.children[i].stats(s)
 	}
 }
@@ -406,20 +497,24 @@ func (n *node16) stats(s *Stats) {
 const n48NoChildForKey byte = 255
 
 type node48 struct {
-	header
+	nodeHeader
 	key      [256]byte // index into children, 255 for no child
 	children [48]node
 }
 
+func (n *node48) header() nodeHeader {
+	return n.nodeHeader
+}
+
 func newNode48(src *node16) *node48 {
-	n := &node48{header: src.header}
+	n := &node48{nodeHeader: src.nodeHeader}
 	for i := range n.key {
 		n.key[i] = n48NoChildForKey
 	}
 	if src.hasValue {
 		n.children[n48ValueIdx] = src.children[n16ValueIdx]
 	}
-	for i := byte(0); i < src.childCount; i++ {
+	for i := byte(0); i < byte(src.childCount); i++ {
 		n.key[src.key[i]] = i
 		n.children[i] = src.children[i]
 	}
@@ -436,18 +531,18 @@ func (n *node48) insert(key []byte, value interface{}) node {
 		// we're trying to insert a value at this path, and this path
 		// is the prefix of some other path.
 		// if we already have a value, then just update it
-		if n.header.hasValue {
+		if n.nodeHeader.hasValue {
 			n.children[n48ValueIdx].insert(key, value)
 			return n
 		}
-		if n.header.childCount < 48 {
-			n.header.hasValue = true
+		if n.nodeHeader.childCount < 48 {
+			n.nodeHeader.hasValue = true
 			n.children[n48ValueIdx] = newNode(key, value)
 			return n
 		}
 		// We're full, need to grow to a larger node size first
 		n256 := newNode256(n)
-		n256.value = value
+		n256.value = newNode(key, value)
 		n256.hasValue = true
 		return n256
 	}
@@ -456,7 +551,7 @@ func (n *node48) insert(key []byte, value interface{}) node {
 		n.children[slot] = n.children[slot].insert(key[1:], value)
 		return n
 	}
-	maxSlots := byte(len(n.children))
+	maxSlots := int16(len(n.children))
 	if n.hasValue {
 		maxSlots--
 	}
@@ -466,11 +561,12 @@ func (n *node48) insert(key []byte, value interface{}) node {
 	}
 	n256 := newNode256(n)
 	n256.children[key[0]] = newNode(key[1:], value)
+	n256.childCount++
 	return n256
 }
 
 func (n *node48) addChildLeaf(key []byte, val interface{}) {
-	n.key[key[0]] = n.childCount
+	n.key[key[0]] = byte(n.childCount)
 	n.children[n.childCount] = newNode(key[1:], val)
 	n.childCount++
 }
@@ -482,19 +578,40 @@ func (n *node48) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node48) get(key []byte) node {
-	if !bytes.HasPrefix(key, n.path) {
-		return nil
+func (n *node48) removeValue() bool {
+	n.children[n48ValueIdx] = nil
+	n.hasValue = false
+	return n.childCount == 0
+}
+
+// keyForSlot returns the key value for the supplied child slot number.
+func (n *node48) keyForSlot(slot byte) int {
+	for k, s := range n.key {
+		if s == slot {
+			return k
+		}
 	}
-	key = key[len(n.path):]
-	if len(key) == 0 {
-		return n
-	}
+	panic("n48.keyForSlot called with unused slot number")
+}
+
+func (n *node48) removeChild(key byte) bool {
+	lastSlot := byte(n.childCount - 1)
+	keyOfLastSlot := n.keyForSlot(lastSlot)
+	slot := n.key[key]
+
+	n.children[slot] = n.children[lastSlot]
+	n.key[keyOfLastSlot] = slot
+	n.key[key] = n48NoChildForKey
+	n.childCount--
+	return n.childCount == 0 && !n.hasValue
+}
+
+func (n *node48) getNextNode(key []byte) (next node, remainingKey []byte) {
 	idx := n.key[key[0]]
 	if idx == n48NoChildForKey {
-		return nil
+		return nil, nil
 	}
-	return n.children[idx].get(key[1:])
+	return n.children[idx], key[1:]
 }
 
 func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
@@ -513,7 +630,7 @@ func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
-func (n *node48) pretty(indent int, w *bufio.Writer) {
+func (n *node48) pretty(indent int, w writer) {
 	w.WriteString("[n48] ")
 	writePath(n.path, w)
 	if n.hasValue {
@@ -523,10 +640,10 @@ func (n *node48) pretty(indent int, w *bufio.Writer) {
 		w.WriteByte('\n')
 	}
 	for k, slot := range n.key {
-		if slot > 0 {
+		if slot != n48NoChildForKey {
 			writeIndent(indent+2, w)
 			fmt.Fprintf(w, "0x%02X: ", k)
-			n.children[slot-1].pretty(indent+8, w)
+			n.children[slot].pretty(indent+8, w)
 		}
 	}
 }
@@ -536,25 +653,25 @@ func (n *node48) stats(s *Stats) {
 	if n.hasValue {
 		n.children[n48ValueIdx].stats(s)
 	}
-	for i := byte(0); i < n.childCount; i++ {
+	for i := int16(0); i < n.childCount; i++ {
 		n.children[i].stats(s)
 	}
 }
 
 type node256 struct {
 	children [256]node
-	value    interface{}
-	header
+	value    node
+	nodeHeader
+}
+
+func (n *node256) header() nodeHeader {
+	return n.nodeHeader
 }
 
 func newNode256(src *node48) *node256 {
-	n := &node256{header: src.header}
+	n := &node256{nodeHeader: src.nodeHeader}
 	if src.hasValue {
-		var exists bool
-		n.value, exists = src.children[n48ValueIdx].nodeValue()
-		if !exists {
-			panic("error, src node48 said it had a value, but does not")
-		}
+		n.value = src.children[n48ValueIdx]
 	}
 	for k, slot := range src.key {
 		if slot != n48NoChildForKey {
@@ -572,39 +689,42 @@ func (n *node256) insert(key []byte, value interface{}) node {
 	key = key[prefixLen:]
 	if len(key) == 0 {
 		n.hasValue = true
-		n.value = value
+		n.value = newNode(key, value)
 		return n
 	}
 	c := n.children[key[0]]
 	if c == nil {
 		n.children[key[0]] = newNode(key[1:], value)
+		n.childCount++
 	} else {
 		n.children[key[0]] = c.insert(key[1:], value)
 	}
 	return n
 }
 
-func (n *node256) get(key []byte) node {
-	if !bytes.HasPrefix(key, n.path) {
-		return nil
-	}
-	key = key[len(n.path):]
-	if len(key) == 0 {
-		if n.hasValue {
-			return n
-		}
-		return nil
-	}
+func (n *node256) removeValue() bool {
+	n.hasValue = false
+	n.value = nil
+	return n.childCount == 0
+}
+
+func (n *node256) removeChild(k byte) bool {
+	n.children[k] = nil
+	n.childCount--
+	return n.childCount == 0 && !n.hasValue
+}
+
+func (n *node256) getNextNode(key []byte) (next node, remainingKey []byte) {
 	c := n.children[key[0]]
 	if c == nil {
-		return nil
+		return nil, nil
 	}
-	return c.get(key[1:])
+	return c, key[1:]
 }
 
 func (n *node256) nodeValue() (interface{}, bool) {
 	if n.hasValue {
-		return n.value, true
+		return n.value.nodeValue()
 	}
 	return nil, false
 }
@@ -623,7 +743,7 @@ func (n *node256) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return Continue
 }
 
-func (n *node256) pretty(indent int, w *bufio.Writer) {
+func (n *node256) pretty(indent int, w writer) {
 	w.WriteString("[n256] ")
 	writePath(n.path, w)
 	if n.hasValue {
@@ -654,6 +774,13 @@ func (n *node256) stats(s *Stats) {
 type leaf struct {
 	value interface{}
 	path  []byte
+}
+
+func (l *leaf) header() nodeHeader {
+	return nodeHeader{
+		path:     l.path,
+		hasValue: true,
+	}
 }
 
 func (l *leaf) trimPathStart(amount int) {
@@ -703,18 +830,23 @@ func (l *leaf) nodeValue() (interface{}, bool) {
 	return l.value, true
 }
 
-func (l *leaf) get(key []byte) node {
-	if bytes.Equal(key, l.path) {
-		return l
-	}
-	return nil
+func (l *leaf) removeValue() bool {
+	return true
+}
+
+func (l *leaf) removeChild(key byte) bool {
+	panic("removeChild called on leaf")
+}
+
+func (l *leaf) getNextNode(key []byte) (next node, remainingKey []byte) {
+	return nil, nil
 }
 
 func (l *leaf) walk(prefix []byte, cb ConsumerFn) WalkState {
 	return cb(append(prefix, l.path...), l.value)
 }
 
-func (l *leaf) pretty(indent int, w *bufio.Writer) {
+func (l *leaf) pretty(indent int, w writer) {
 	w.WriteString("[leaf] ")
 	writePath(l.path, w)
 	fmt.Fprintf(w, " value:%v\n", l.value)
@@ -724,7 +856,7 @@ func (l *leaf) stats(s *Stats) {
 	s.Keys++
 }
 
-func writePath(p []byte, w *bufio.Writer) {
+func writePath(p []byte, w writer) {
 	if len(p) > 0 {
 		w.WriteString(" [")
 		for i, k := range p {
@@ -739,7 +871,7 @@ func writePath(p []byte, w *bufio.Writer) {
 
 var spaces = bytes.Repeat([]byte{' '}, 16)
 
-func writeIndent(indent int, w *bufio.Writer) {
+func writeIndent(indent int, w io.Writer) {
 	if indent > len(spaces) {
 		spaces = bytes.Repeat([]byte{' '}, indent*2)
 	}
