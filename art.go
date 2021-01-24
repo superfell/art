@@ -539,7 +539,7 @@ func (n *node48) insert(key []byte, value interface{}) node {
 		}
 		// We're full, need to grow to a larger node size first
 		n256 := newNode256(n)
-		n256.value = value
+		n256.value = newNode(key, value)
 		n256.hasValue = true
 		return n256
 	}
@@ -653,7 +653,7 @@ func (n *node48) stats(s *Stats) {
 
 type node256 struct {
 	children [256]node
-	value    interface{}
+	value    node
 	nodeHeader
 }
 
@@ -664,11 +664,7 @@ func (n *node256) header() nodeHeader {
 func newNode256(src *node48) *node256 {
 	n := &node256{nodeHeader: src.nodeHeader}
 	if src.hasValue {
-		var exists bool
-		n.value, exists = src.children[n48ValueIdx].nodeValue()
-		if !exists {
-			panic("error, src node48 said it had a value, but does not")
-		}
+		n.value = src.children[n48ValueIdx]
 	}
 	for k, slot := range src.key {
 		if slot != n48NoChildForKey {
@@ -686,7 +682,7 @@ func (n *node256) insert(key []byte, value interface{}) node {
 	key = key[prefixLen:]
 	if len(key) == 0 {
 		n.hasValue = true
-		n.value = value
+		n.value = newNode(key, value)
 		return n
 	}
 	c := n.children[key[0]]
@@ -729,7 +725,7 @@ func (n *node256) getNextNode(key []byte) (next node, remainingKey []byte, remov
 
 func (n *node256) nodeValue() (interface{}, bool) {
 	if n.hasValue {
-		return n.value, true
+		return n.value.nodeValue()
 	}
 	return nil, false
 }
