@@ -46,6 +46,21 @@ func (n *node256) insert(key []byte, value interface{}) node {
 	return n
 }
 
+func (n *node256) valueNode() node {
+	return n.value
+}
+
+func (n *node256) iterateChildren(cb nodeConsumer) WalkState {
+	for k, n := range n.children {
+		if n != nil {
+			if cb(byte(k), n) == Stop {
+				return Stop
+			}
+		}
+	}
+	return Continue
+}
+
 func (n *node256) removeValue() node {
 	n.hasValue = false
 	n.value = nil
@@ -60,6 +75,9 @@ func (n *node256) removeChild(k byte) node {
 	n.childCount--
 	if n.childCount == 0 && !n.hasValue {
 		return nil
+	}
+	if n.childCount < 48*3/4 {
+		return newNode48(n)
 	}
 	return n
 }

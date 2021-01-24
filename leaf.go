@@ -18,6 +18,10 @@ func (l *leaf) trimPathStart(amount int) {
 	l.path = l.path[amount:]
 }
 
+func (l *leaf) prependPath(prefix []byte, k ...byte) {
+	l.path = joinSlices(prefix, k, l.path)
+}
+
 func (l *leaf) insert(key []byte, value interface{}) node {
 	// may need to split this so that the child nodes can be added
 	splitN, replaced, prefixLen := splitNodePath(key, l.path, l)
@@ -40,6 +44,14 @@ func (l *leaf) insert(key []byte, value interface{}) node {
 
 func (l *leaf) nodeValue() (interface{}, bool) {
 	return l.value, true
+}
+
+func (l *leaf) valueNode() node {
+	return l // ?
+}
+
+func (l *leaf) iterateChildren(cb nodeConsumer) WalkState {
+	return Continue
 }
 
 func (l *leaf) removeValue() node {

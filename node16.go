@@ -13,15 +13,18 @@ func (n *node16) header() nodeHeader {
 }
 
 // constructs a new node16 from a node4.
-func newNode16(src *node4) *node16 {
-	n := node16{nodeHeader: src.nodeHeader}
-	for i := 0; i < int(src.nodeHeader.childCount); i++ {
-		n.key[i] = src.key[i]
-		n.children[i] = src.children[i]
+func newNode16(src node) *node16 {
+	n := node16{nodeHeader: src.header()}
+	if n.hasValue {
+		n.children[n16ValueIdx] = src.valueNode()
 	}
-	if src.hasValue {
-		n.children[n16ValueIdx] = src.children[n4ValueIdx]
-	}
+	slot := 0
+	src.iterateChildren(func(k byte, cn node) WalkState {
+		n.key[slot] = k
+		n.children[slot] = cn
+		slot++
+		return Continue
+	})
 	return &n
 }
 
@@ -83,6 +86,33 @@ func (n *node16) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
+func (n *node16) valueNode() node {
+	if n.hasValue {
+		return n.children[n16ValueIdx]
+	}
+	return nil
+}
+
+func (n *node16) iterateChildren(cb nodeConsumer) WalkState {
+	done := byte(0)
+	for i := byte(0); i < byte(n.childCount); i++ {
+		next := byte(255)
+		nextIdx := byte(255)
+		for j := byte(0); j < byte(n.childCount); j++ {
+			k := n.key[j]
+			if k <= next && k >= done {
+				next = k
+				nextIdx = j
+			}
+		}
+		if cb(next, n.children[nextIdx]) == Stop {
+			return Stop
+		}
+		done = next + 1
+	}
+	return Continue
+}
+
 func (n *node16) removeValue() node {
 	n.children[n16ValueIdx] = nil
 	n.hasValue = false
@@ -103,6 +133,9 @@ func (n *node16) removeChild(k byte) node {
 			n.childCount--
 			if n.childCount == 0 && !n.hasValue {
 				return nil
+			}
+			if n.childCount <= 2 {
+				return newNode4(n)
 			}
 			return n
 		}

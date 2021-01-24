@@ -138,10 +138,13 @@ type writer interface {
 	io.StringWriter
 }
 
+type nodeConsumer func(k byte, n node) WalkState
+
 type node interface {
 	header() nodeHeader
 	insert(key []byte, value interface{}) node
 	trimPathStart(amount int)
+	prependPath(prefix []byte, k ...byte)
 
 	getNextNode(key []byte) (next *node, remainingKey []byte)
 
@@ -151,6 +154,9 @@ type node interface {
 	// a smaller type)
 	removeValue() node
 	removeChild(key byte) node
+
+	valueNode() node
+	iterateChildren(cb nodeConsumer) WalkState
 
 	nodeValue() (value interface{}, exists bool)
 	walk(prefix []byte, callback ConsumerFn) WalkState
@@ -179,6 +185,24 @@ type nodeHeader struct {
 
 func (h *nodeHeader) trimPathStart(amount int) {
 	h.path = h.path[amount:]
+}
+
+func joinSlices(a []byte, b []byte, c []byte) []byte {
+	lenA := len(a)
+	lenB := len(b)
+	dst := make([]byte, lenA+lenB+len(c))
+	copy(dst, a)
+	copy(dst[lenA:], b)
+	copy(dst[lenA+lenB:], c)
+	return dst
+}
+
+func (h *nodeHeader) prependPath(prefix []byte, k ...byte) {
+	// this stupid dance is because prefix points into the overall key slice
+	// and if we just blindly append(prefix, k, h.path...) this will mutate
+	// the part of the key after the prefix and break many things.
+	// yet another reason to make path a [24]byte instead.
+	h.path = joinSlices(prefix, k, h.path)
 }
 
 // index into the children arrays for the node value leaf.

@@ -283,9 +283,10 @@ func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 	rnd.Shuffle(len(deletes), func(i, j int) {
 		deletes[i], deletes[j] = deletes[j], deletes[i]
 	})
+
 	for _, kv := range deletes {
-		t.Logf("About to delete key %s", hexPath(kv.key))
 		before := pretty(a)
+		// t.Logf("About to delete key %s", hexPath(kv.key))
 		a.Delete(kv.key)
 		store.delete(kv.key)
 		hasKeyVals(t, a, store.ordered())
@@ -311,6 +312,19 @@ var rnd = rand.New(rand.NewSource(42))
 type keyVal struct {
 	key []byte
 	val interface{}
+}
+
+func kvList(l []keyVal) string {
+	b := &strings.Builder{}
+	for _, x := range l {
+		b.WriteString(x.String())
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func (kv keyVal) String() string {
+	return fmt.Sprintf("[k:%s v:%v]", hexPath(kv.key), kv.val)
 }
 
 func kv(k []byte, v interface{}) keyVal {
