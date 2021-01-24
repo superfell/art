@@ -32,6 +32,11 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 	}
 	curr := a.root
 	for {
+		h := curr.header()
+		if !bytes.HasPrefix(key, h.path) {
+			return nil, false
+		}
+		key = key[len(h.path):]
 		next, remainingKey, _ := curr.getNextNode(key)
 		if next == nil {
 			return nil, false
@@ -56,6 +61,11 @@ func (a *Tree) Delete(key []byte) {
 }
 
 func (a *Tree) delete(n node, key []byte) bool {
+	h := n.header()
+	if !bytes.HasPrefix(key, h.path) {
+		return false
+	}
+	key = key[len(h.path):]
 	next, remainingKey, remover := n.getNextNode(key)
 	if next == nil {
 		return false
@@ -130,6 +140,7 @@ type writer interface {
 }
 
 type node interface {
+	header() nodeHeader
 	insert(key []byte, value interface{}) node
 	trimPathStart(amount int)
 
@@ -173,6 +184,10 @@ type node4 struct {
 	nodeHeader
 	key      [4]byte
 	children [4]node
+}
+
+func (n *node4) header() nodeHeader {
+	return n.nodeHeader
 }
 
 func (n *node4) insert(key []byte, value interface{}) node {
@@ -248,10 +263,6 @@ func (n *node4) childRemover(i int) func() bool {
 }
 
 func (n *node4) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if !bytes.HasPrefix(key, n.path) {
-		return nil, nil, nil
-	}
-	key = key[len(n.path):]
 	if len(key) == 0 {
 		return n, key, n.removeValue
 	}
@@ -320,6 +331,10 @@ type node16 struct {
 	nodeHeader
 	key      [16]byte
 	children [16]node
+}
+
+func (n *node16) header() nodeHeader {
+	return n.nodeHeader
 }
 
 // constructs a new node16 from a node4.
@@ -412,10 +427,6 @@ func (n *node16) childRemover(i int) func() bool {
 }
 
 func (n *node16) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if !bytes.HasPrefix(key, n.path) {
-		return nil, nil, nil
-	}
-	key = key[len(n.path):]
 	if len(key) == 0 {
 		return n, key, n.removeValue
 	}
@@ -486,6 +497,10 @@ type node48 struct {
 	nodeHeader
 	key      [256]byte // index into children, 255 for no child
 	children [48]node
+}
+
+func (n *node48) header() nodeHeader {
+	return n.nodeHeader
 }
 
 func newNode48(src *node16) *node48 {
@@ -582,10 +597,6 @@ func (n *node48) childRemover(key byte, slot byte) func() bool {
 }
 
 func (n *node48) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if !bytes.HasPrefix(key, n.path) {
-		return nil, nil, nil
-	}
-	key = key[len(n.path):]
 	if len(key) == 0 {
 		return n, key, n.removeValue
 	}
@@ -646,6 +657,10 @@ type node256 struct {
 	nodeHeader
 }
 
+func (n *node256) header() nodeHeader {
+	return n.nodeHeader
+}
+
 func newNode256(src *node48) *node256 {
 	n := &node256{nodeHeader: src.nodeHeader}
 	if src.hasValue {
@@ -699,10 +714,6 @@ func (n *node256) childRemover(k byte) func() bool {
 }
 
 func (n *node256) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if !bytes.HasPrefix(key, n.path) {
-		return nil, nil, nil
-	}
-	key = key[len(n.path):]
 	if len(key) == 0 {
 		if n.hasValue {
 			return n, key, n.removeValue
@@ -770,6 +781,13 @@ type leaf struct {
 	path  []byte
 }
 
+func (l *leaf) header() nodeHeader {
+	return nodeHeader{
+		path:     l.path,
+		hasValue: true,
+	}
+}
+
 func (l *leaf) trimPathStart(amount int) {
 	l.path = l.path[amount:]
 }
@@ -818,7 +836,7 @@ func (l *leaf) nodeValue() (interface{}, bool) {
 }
 
 func (l *leaf) getNextNode(key []byte) (next node, remainingKey []byte, remover func() bool) {
-	if bytes.Equal(key, l.path) {
+	if len(key) == 0 {
 		return l, []byte{}, func() bool { return true }
 	}
 	return nil, nil, nil
