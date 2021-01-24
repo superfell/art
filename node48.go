@@ -152,22 +152,6 @@ func (n *node48) getNextNode(key []byte) (next *node, remainingKey []byte) {
 	return &n.children[idx], key[1:]
 }
 
-func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
-	prefix = append(prefix, n.path...)
-	v, exists := n.nodeValue()
-	if exists && cb(prefix, v) == Stop {
-		return Stop
-	}
-	for idx, slot := range n.key {
-		if slot != n48NoChildForKey {
-			if n.children[slot].walk(append(prefix, byte(idx)), cb) == Stop {
-				return Stop
-			}
-		}
-	}
-	return Continue
-}
-
 func (n *node48) pretty(indent int, w writer) {
 	w.WriteString("[n48] ")
 	writePath(n.path, w)

@@ -97,20 +97,6 @@ func (n *node256) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node256) walk(prefix []byte, cb ConsumerFn) WalkState {
-	prefix = append(prefix, n.path...)
-	v, exists := n.nodeValue()
-	if exists && cb(prefix, v) == Stop {
-		return Stop
-	}
-	for idx, c := range n.children {
-		if c != nil && c.walk(append(prefix, byte(idx)), cb) == Stop {
-			return Stop
-		}
-	}
-	return Continue
-}
-
 func (n *node256) pretty(indent int, w writer) {
 	w.WriteString("[n256] ")
 	writePath(n.path, w)

@@ -158,33 +158,6 @@ func (n *node4) getNextNode(key []byte) (next *node, remainingKey []byte) {
 	return nil, nil
 }
 
-func (n *node4) walk(prefix []byte, cb ConsumerFn) WalkState {
-	prefix = append(prefix, n.path...)
-	val, exists := n.nodeValue()
-	if exists {
-		if cb(prefix, val) == Stop {
-			return Stop
-		}
-	}
-	done := byte(0)
-	for i := int16(0); i < n.childCount; i++ {
-		next := byte(255)
-		nextIdx := byte(255)
-		for j := byte(0); j < byte(n.childCount); j++ {
-			k := n.key[j]
-			if k <= next && k >= done {
-				next = k
-				nextIdx = j
-			}
-		}
-		if n.children[nextIdx].walk(append(prefix, next), cb) == Stop {
-			return Stop
-		}
-		done = next + 1
-	}
-	return Continue
-}
-
 func (n *node4) pretty(indent int, w writer) {
 	w.WriteString("[n4] ")
 	writePath(n.path, w)

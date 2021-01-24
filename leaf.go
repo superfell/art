@@ -47,7 +47,7 @@ func (l *leaf) nodeValue() (interface{}, bool) {
 }
 
 func (l *leaf) valueNode() node {
-	return l // ?
+	return l
 }
 
 func (l *leaf) iterateChildren(cb nodeConsumer) WalkState {

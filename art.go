@@ -98,7 +98,21 @@ func (a *Tree) Walk(callback ConsumerFn) {
 	if a.root == nil {
 		return
 	}
-	a.root.walk(nil, callback)
+	a.walk(a.root, make([]byte, 0, 32), callback)
+}
+
+func (a *Tree) walk(n node, prefix []byte, callback ConsumerFn) WalkState {
+	h := n.header()
+	prefix = append(prefix, h.path...)
+	if h.hasValue {
+		leaf := n.valueNode().(*leaf)
+		if callback(prefix, leaf.value) == Stop {
+			return Stop
+		}
+	}
+	return n.iterateChildren(func(k byte, cn node) WalkState {
+		return a.walk(cn, append(prefix, k), callback)
+	})
 }
 
 // PrettyPrint will generate a compact representation of the state of the tree. Its primary
@@ -159,7 +173,6 @@ type node interface {
 	iterateChildren(cb nodeConsumer) WalkState
 
 	nodeValue() (value interface{}, exists bool)
-	walk(prefix []byte, callback ConsumerFn) WalkState
 
 	pretty(indent int, dest writer)
 	stats(s *Stats)
