@@ -66,10 +66,6 @@ func (l *leaf) getNextNode(key []byte) (next *node, remainingKey []byte) {
 	return nil, nil
 }
 
-func (l *leaf) walk(prefix []byte, cb ConsumerFn) WalkState {
-	return cb(append(prefix, l.path...), l.value)
-}
-
 func (l *leaf) pretty(indent int, w writer) {
 	w.WriteString("[leaf] ")
 	writePath(l.path, w)
