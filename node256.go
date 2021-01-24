@@ -64,18 +64,12 @@ func (n *node256) iterateChildren(cb nodeConsumer) WalkState {
 func (n *node256) removeValue() node {
 	n.hasValue = false
 	n.value = nil
-	if n.childCount == 0 {
-		return nil
-	}
 	return n
 }
 
 func (n *node256) removeChild(k byte) node {
 	n.children[k] = nil
 	n.childCount--
-	if n.childCount == 0 && !n.hasValue {
-		return nil
-	}
 	if n.childCount < 48*3/4 {
 		return newNode48(n)
 	}

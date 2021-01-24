@@ -116,9 +116,6 @@ func (n *node16) iterateChildren(cb nodeConsumer) WalkState {
 func (n *node16) removeValue() node {
 	n.children[n16ValueIdx] = nil
 	n.hasValue = false
-	if n.childCount == 0 {
-		return nil
-	}
 	return n
 }
 
@@ -131,9 +128,6 @@ func (n *node16) removeChild(k byte) node {
 			n.key[i] = n.key[lastIdx]
 			n.key[lastIdx] = 0
 			n.childCount--
-			if n.childCount == 0 && !n.hasValue {
-				return nil
-			}
 			if n.childCount <= 2 {
 				return newNode4(n)
 			}

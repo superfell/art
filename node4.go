@@ -115,9 +115,6 @@ func (n *node4) removeValue() node {
 }
 
 func (n *node4) shrinkMeMaybe() node {
-	if n.childCount == 0 && !n.hasValue {
-		return nil
-	}
 	if n.childCount == 1 && !n.hasValue {
 		// when we're down to 1 child, we can add our path and the child's key to the start of its path
 		// and return that instead
