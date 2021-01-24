@@ -46,10 +46,10 @@ For simplicity the collapsed path is stored in a slice, but this could be improv
 node4 & node16 are currently identical other than the array sizes. node16 might benefit from the SIMD approach (if possible in go) or from
 storing the keys sorted. It needs testing, but it not clear that sorting the keys in node4 is worth the effort.
 
-Delete is not yet implemented.
-
 Range scans (other than the entire tree) are not yet implemented.
 
+During delete nodes will be shrunk once they contain less then 75% entries than the next smallest size can support. e.g. a node256 will
+shrink to a node48 once the node256 only has 36 children. This should help reduce grow/shrink/grow around the node size boundaries.
 
 ## Differences vs paper
 
