@@ -37,12 +37,12 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 			return nil, false
 		}
 		key = key[len(h.path):]
+		if len(key) == 0 {
+			return curr.nodeValue()
+		}
 		next, remainingKey, _ := curr.getNextNode(key)
 		if next == nil {
 			return nil, false
-		}
-		if next == curr {
-			return next.nodeValue()
 		}
 		curr = next
 		key = remainingKey
