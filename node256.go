@@ -32,8 +32,12 @@ func (n *node256) insert(key []byte, value interface{}) node {
 	}
 	key = key[prefixLen:]
 	if len(key) == 0 {
-		n.hasValue = true
-		n.value = newNode(key, value)
+		if n.hasValue {
+			n.value.insert(key, value)
+		} else {
+			n.hasValue = true
+			n.value = newNode(key, value)
+		}
 		return n
 	}
 	c := n.children[key[0]]
