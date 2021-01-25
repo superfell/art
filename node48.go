@@ -14,18 +14,21 @@ func (n *node48) header() nodeHeader {
 	return n.nodeHeader
 }
 
-func newNode48(src *node16) *node48 {
-	n := &node48{nodeHeader: src.nodeHeader}
+func newNode48(src node) *node48 {
+	n := &node48{nodeHeader: src.header()}
 	for i := range n.key {
 		n.key[i] = n48NoChildForKey
 	}
-	if src.hasValue {
-		n.children[n48ValueIdx] = src.children[n16ValueIdx]
+	if n.hasValue {
+		n.children[n48ValueIdx] = src.valueNode()
 	}
-	for i := byte(0); i < byte(src.childCount); i++ {
-		n.key[src.key[i]] = i
-		n.children[i] = src.children[i]
-	}
+	slot := byte(0)
+	src.iterateChildren(func(k byte, cn node) WalkState {
+		n.key[k] = slot
+		n.children[slot] = cn
+		slot++
+		return Continue
+	})
 	return n
 }
 
@@ -86,10 +89,28 @@ func (n *node48) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node48) removeValue() bool {
+func (n *node48) valueNode() node {
+	if n.hasValue {
+		return n.children[n48ValueIdx]
+	}
+	return nil
+}
+
+func (n *node48) iterateChildren(cb nodeConsumer) WalkState {
+	for k, slot := range n.key {
+		if slot != n48NoChildForKey {
+			if cb(byte(k), n.children[slot]) == Stop {
+				return Stop
+			}
+		}
+	}
+	return Continue
+}
+
+func (n *node48) removeValue() node {
 	n.children[n48ValueIdx] = nil
 	n.hasValue = false
-	return n.childCount == 0
+	return n
 }
 
 // keyForSlot returns the key value for the supplied child slot number.
@@ -102,7 +123,7 @@ func (n *node48) keyForSlot(slot byte) int {
 	panic("n48.keyForSlot called with unused slot number")
 }
 
-func (n *node48) removeChild(key byte) bool {
+func (n *node48) removeChild(key byte) node {
 	lastSlot := byte(n.childCount - 1)
 	keyOfLastSlot := n.keyForSlot(lastSlot)
 	slot := n.key[key]
@@ -111,31 +132,18 @@ func (n *node48) removeChild(key byte) bool {
 	n.key[keyOfLastSlot] = slot
 	n.key[key] = n48NoChildForKey
 	n.childCount--
-	return n.childCount == 0 && !n.hasValue
+	if n.childCount < 16*3/4 {
+		return newNode16(n)
+	}
+	return n
 }
 
-func (n *node48) getNextNode(key []byte) (next node, remainingKey []byte) {
+func (n *node48) getNextNode(key []byte) (next *node, remainingKey []byte) {
 	idx := n.key[key[0]]
 	if idx == n48NoChildForKey {
 		return nil, nil
 	}
-	return n.children[idx], key[1:]
-}
-
-func (n *node48) walk(prefix []byte, cb ConsumerFn) WalkState {
-	prefix = append(prefix, n.path...)
-	v, exists := n.nodeValue()
-	if exists && cb(prefix, v) == Stop {
-		return Stop
-	}
-	for idx, slot := range n.key {
-		if slot != n48NoChildForKey {
-			if n.children[slot].walk(append(prefix, byte(idx)), cb) == Stop {
-				return Stop
-			}
-		}
-	}
-	return Continue
+	return &n.children[idx], key[1:]
 }
 
 func (n *node48) pretty(indent int, w writer) {

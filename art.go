@@ -44,7 +44,7 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 		if next == nil {
 			return nil, false
 		}
-		curr = next
+		curr = *next
 		key = remainingKey
 	}
 }
@@ -55,15 +55,13 @@ func (a *Tree) Delete(key []byte) {
 	if a.root == nil {
 		return
 	}
-	if a.delete(a.root, key) {
-		a.root = nil
-	}
+	a.root = a.delete(a.root, key)
 }
 
-func (a *Tree) delete(n node, key []byte) bool {
+func (a *Tree) delete(n node, key []byte) node {
 	h := n.header()
 	if !bytes.HasPrefix(key, h.path) {
-		return false
+		return n
 	}
 	key = key[len(h.path):]
 	if len(key) == 0 {
@@ -71,12 +69,13 @@ func (a *Tree) delete(n node, key []byte) bool {
 	}
 	next, remainingKey := n.getNextNode(key)
 	if next == nil {
-		return false
+		return n
 	}
-	if a.delete(next, remainingKey) {
+	*next = a.delete(*next, remainingKey)
+	if *next == nil {
 		return n.removeChild(key[0])
 	}
-	return false
+	return n
 }
 
 // WalkState describes how to proceed with an iteration of the tree (or partial tree).
@@ -99,7 +98,21 @@ func (a *Tree) Walk(callback ConsumerFn) {
 	if a.root == nil {
 		return
 	}
-	a.root.walk(nil, callback)
+	a.walk(a.root, make([]byte, 0, 32), callback)
+}
+
+func (a *Tree) walk(n node, prefix []byte, callback ConsumerFn) WalkState {
+	h := n.header()
+	prefix = append(prefix, h.path...)
+	if h.hasValue {
+		leaf := n.valueNode().(*leaf)
+		if callback(prefix, leaf.value) == Stop {
+			return Stop
+		}
+	}
+	return n.iterateChildren(func(k byte, cn node) WalkState {
+		return a.walk(cn, append(prefix, k), callback)
+	})
 }
 
 // PrettyPrint will generate a compact representation of the state of the tree. Its primary
@@ -139,18 +152,27 @@ type writer interface {
 	io.StringWriter
 }
 
+type nodeConsumer func(k byte, n node) WalkState
+
 type node interface {
 	header() nodeHeader
 	insert(key []byte, value interface{}) node
 	trimPathStart(amount int)
+	prependPath(prefix []byte, k ...byte)
 
-	getNextNode(key []byte) (next node, remainingKey []byte)
+	getNextNode(key []byte) (next *node, remainingKey []byte)
 
-	removeValue() bool
-	removeChild(key byte) bool
+	// remove the value (or child) for this node, the node can be removed from the tree
+	// if it returns nil, or it can return a different node instance and the
+	// tree will be updated to that one (i.e. so that nodes can shrink to
+	// a smaller type)
+	removeValue() node
+	removeChild(key byte) node
+
+	valueNode() node
+	iterateChildren(cb nodeConsumer) WalkState
 
 	nodeValue() (value interface{}, exists bool)
-	walk(prefix []byte, callback ConsumerFn) WalkState
 
 	pretty(indent int, dest writer)
 	stats(s *Stats)
@@ -176,6 +198,24 @@ type nodeHeader struct {
 
 func (h *nodeHeader) trimPathStart(amount int) {
 	h.path = h.path[amount:]
+}
+
+func joinSlices(a []byte, b []byte, c []byte) []byte {
+	lenA := len(a)
+	lenB := len(b)
+	dst := make([]byte, lenA+lenB+len(c))
+	copy(dst, a)
+	copy(dst[lenA:], b)
+	copy(dst[lenA+lenB:], c)
+	return dst
+}
+
+func (h *nodeHeader) prependPath(prefix []byte, k ...byte) {
+	// this stupid dance is because prefix points into the overall key slice
+	// and if we just blindly append(prefix, k, h.path...) this will mutate
+	// the part of the key after the prefix and break many things.
+	// yet another reason to make path a [24]byte instead.
+	h.path = joinSlices(prefix, k, h.path)
 }
 
 // index into the children arrays for the node value leaf.

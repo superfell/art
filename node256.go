@@ -46,24 +46,42 @@ func (n *node256) insert(key []byte, value interface{}) node {
 	return n
 }
 
-func (n *node256) removeValue() bool {
+func (n *node256) valueNode() node {
+	return n.value
+}
+
+func (n *node256) iterateChildren(cb nodeConsumer) WalkState {
+	for k, n := range n.children {
+		if n != nil {
+			if cb(byte(k), n) == Stop {
+				return Stop
+			}
+		}
+	}
+	return Continue
+}
+
+func (n *node256) removeValue() node {
 	n.hasValue = false
 	n.value = nil
-	return n.childCount == 0
+	return n
 }
 
-func (n *node256) removeChild(k byte) bool {
+func (n *node256) removeChild(k byte) node {
 	n.children[k] = nil
 	n.childCount--
-	return n.childCount == 0 && !n.hasValue
+	if n.childCount < 48*3/4 {
+		return newNode48(n)
+	}
+	return n
 }
 
-func (n *node256) getNextNode(key []byte) (next node, remainingKey []byte) {
+func (n *node256) getNextNode(key []byte) (next *node, remainingKey []byte) {
 	c := n.children[key[0]]
 	if c == nil {
 		return nil, nil
 	}
-	return c, key[1:]
+	return &n.children[key[0]], key[1:]
 }
 
 func (n *node256) nodeValue() (interface{}, bool) {
@@ -71,20 +89,6 @@ func (n *node256) nodeValue() (interface{}, bool) {
 		return n.value.nodeValue()
 	}
 	return nil, false
-}
-
-func (n *node256) walk(prefix []byte, cb ConsumerFn) WalkState {
-	prefix = append(prefix, n.path...)
-	v, exists := n.nodeValue()
-	if exists && cb(prefix, v) == Stop {
-		return Stop
-	}
-	for idx, c := range n.children {
-		if c != nil && c.walk(append(prefix, byte(idx)), cb) == Stop {
-			return Stop
-		}
-	}
-	return Continue
 }
 
 func (n *node256) pretty(indent int, w writer) {

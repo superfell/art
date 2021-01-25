@@ -13,15 +13,18 @@ func (n *node16) header() nodeHeader {
 }
 
 // constructs a new node16 from a node4.
-func newNode16(src *node4) *node16 {
-	n := node16{nodeHeader: src.nodeHeader}
-	for i := 0; i < int(src.nodeHeader.childCount); i++ {
-		n.key[i] = src.key[i]
-		n.children[i] = src.children[i]
+func newNode16(src node) *node16 {
+	n := node16{nodeHeader: src.header()}
+	if n.hasValue {
+		n.children[n16ValueIdx] = src.valueNode()
 	}
-	if src.hasValue {
-		n.children[n16ValueIdx] = src.children[n4ValueIdx]
-	}
+	slot := 0
+	src.iterateChildren(func(k byte, cn node) WalkState {
+		n.key[slot] = k
+		n.children[slot] = cn
+		slot++
+		return Continue
+	})
 	return &n
 }
 
@@ -83,44 +86,14 @@ func (n *node16) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node16) removeValue() bool {
-	n.children[n16ValueIdx] = nil
-	n.hasValue = false
-	return n.childCount == 0
+func (n *node16) valueNode() node {
+	if n.hasValue {
+		return n.children[n16ValueIdx]
+	}
+	return nil
 }
 
-func (n *node16) removeChild(k byte) bool {
-	lastIdx := n.childCount - 1
-	for i := 0; i < int(n.childCount); i++ {
-		if k == n.key[i] {
-			n.children[i] = n.children[lastIdx]
-			n.children[lastIdx] = nil
-			n.key[i] = n.key[lastIdx]
-			n.key[lastIdx] = 0
-			n.childCount--
-			return n.childCount == 0 && !n.hasValue
-		}
-	}
-	return false
-}
-
-func (n *node16) getNextNode(key []byte) (next node, remainingKey []byte) {
-	for i := 0; i < int(n.childCount); i++ {
-		if key[0] == n.key[i] {
-			return n.children[i], key[1:]
-		}
-	}
-	return nil, nil
-}
-
-func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
-	prefix = append(prefix, n.path...)
-	val, exists := n.nodeValue()
-	if exists {
-		if cb(prefix, val) == Stop {
-			return Stop
-		}
-	}
+func (n *node16) iterateChildren(cb nodeConsumer) WalkState {
 	done := byte(0)
 	for i := byte(0); i < byte(n.childCount); i++ {
 		next := byte(255)
@@ -132,12 +105,45 @@ func (n *node16) walk(prefix []byte, cb ConsumerFn) WalkState {
 				nextIdx = j
 			}
 		}
-		if n.children[nextIdx].walk(append(prefix, next), cb) == Stop {
+		if cb(next, n.children[nextIdx]) == Stop {
 			return Stop
 		}
 		done = next + 1
 	}
 	return Continue
+}
+
+func (n *node16) removeValue() node {
+	n.children[n16ValueIdx] = nil
+	n.hasValue = false
+	return n
+}
+
+func (n *node16) removeChild(k byte) node {
+	lastIdx := n.childCount - 1
+	for i := 0; i < int(n.childCount); i++ {
+		if k == n.key[i] {
+			n.children[i] = n.children[lastIdx]
+			n.children[lastIdx] = nil
+			n.key[i] = n.key[lastIdx]
+			n.key[lastIdx] = 0
+			n.childCount--
+			if n.childCount <= 2 {
+				return newNode4(n)
+			}
+			return n
+		}
+	}
+	return n
+}
+
+func (n *node16) getNextNode(key []byte) (next *node, remainingKey []byte) {
+	for i := 0; i < int(n.childCount); i++ {
+		if key[0] == n.key[i] {
+			return &n.children[i], key[1:]
+		}
+	}
+	return nil, nil
 }
 
 func (n *node16) pretty(indent int, w writer) {
