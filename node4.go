@@ -70,7 +70,7 @@ func (n *node4) insert(key []byte, value interface{}) node {
 		return n
 	}
 	n16 := newNode16(n)
-	n16.addChildLeaf(key, value)
+	n16.addChildNode(key[0], newNode(key[1:], value))
 	return n16
 }
 

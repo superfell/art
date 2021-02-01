@@ -1,6 +1,8 @@
 package art
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type node16 struct {
 	nodeHeader
@@ -18,11 +20,12 @@ func newNode16(src node) *node16 {
 	if n.hasValue {
 		n.children[n16ValueIdx] = src.valueNode()
 	}
-	slot := 0
+	idx := 0
+	// iterateChildren iterates in key order, which simplifies this
 	src.iterateChildren(func(k byte, cn node) WalkState {
-		n.key[slot] = k
-		n.children[slot] = cn
-		slot++
+		n.key[idx] = k
+		n.children[idx] = cn
+		idx++
 		return Continue
 	})
 	return &n
@@ -53,18 +56,17 @@ func (n *node16) insert(key []byte, value interface{}) node {
 		n48.hasValue = true
 		return n48
 	}
-	for i := int16(0); i < n.childCount; i++ {
-		if n.key[i] == key[0] {
-			n.children[i] = n.children[i].insert(key[1:], value)
-			return n
-		}
+	next, remainingKey := n.getNextNode(key)
+	if next != nil {
+		*next = (*next).insert(remainingKey, value)
+		return n
 	}
 	maxChildren := int16(len(n.children))
 	if n.hasValue {
 		maxChildren--
 	}
 	if n.childCount < maxChildren {
-		n.addChildLeaf(key, value)
+		n.addChildNode(key[0], newNode(key[1:], value))
 		return n
 	}
 	n48 := newNode48(n)
@@ -72,11 +74,31 @@ func (n *node16) insert(key []byte, value interface{}) node {
 	return n48
 }
 
-func (n *node16) addChildLeaf(key []byte, val interface{}) {
-	idx := n.childCount
-	n.key[idx] = key[0]
-	n.children[idx] = newNode(key[1:], val)
+func (n *node16) addChildNode(key byte, child node) {
+	// keep key ordered
+	slot, exists := n.findInsertionPoint(key)
+	if exists {
+		panic("addChildNode called with key that has an existing value")
+	}
+	copy(n.key[slot+1:], n.key[slot:int(n.childCount)])
+	copy(n.children[slot+1:], n.children[slot:int(n.childCount)])
+	n.key[slot] = key
+	n.children[slot] = child
 	n.nodeHeader.childCount++
+}
+
+func (n *node16) findInsertionPoint(key byte) (idx int, exists bool) {
+	count := int(n.childCount)
+	_ = n.key[count-1]
+	for i := count - 1; i >= 0; i-- {
+		if key == n.key[i] {
+			return i, true
+		}
+		if key > n.key[i] {
+			return i + 1, false
+		}
+	}
+	return 0, false
 }
 
 func (n *node16) nodeValue() (interface{}, bool) {
@@ -94,21 +116,10 @@ func (n *node16) valueNode() node {
 }
 
 func (n *node16) iterateChildren(cb nodeConsumer) WalkState {
-	done := byte(0)
-	for i := byte(0); i < byte(n.childCount); i++ {
-		next := byte(255)
-		nextIdx := byte(255)
-		for j := byte(0); j < byte(n.childCount); j++ {
-			k := n.key[j]
-			if k <= next && k >= done {
-				next = k
-				nextIdx = j
-			}
-		}
-		if cb(next, n.children[nextIdx]) == Stop {
+	for i := 0; i < int(n.childCount); i++ {
+		if cb(n.key[i], n.children[i]) == Stop {
 			return Stop
 		}
-		done = next + 1
 	}
 	return Continue
 }
@@ -120,26 +131,29 @@ func (n *node16) removeValue() node {
 }
 
 func (n *node16) removeChild(k byte) node {
-	lastIdx := n.childCount - 1
-	for i := 0; i < int(n.childCount); i++ {
-		if k == n.key[i] {
-			n.children[i] = n.children[lastIdx]
-			n.children[lastIdx] = nil
-			n.key[i] = n.key[lastIdx]
-			n.key[lastIdx] = 0
-			n.childCount--
-			if n.childCount <= 2 {
-				return newNode4(n)
-			}
-			return n
-		}
+	// keep key ordered
+	idx, exists := n.findInsertionPoint(k)
+	if !exists {
+		panic(fmt.Sprintf("removeChild called on non-existing key %d, keys are %v", k, n.key[:n.childCount]))
+	}
+	copy(n.key[idx:], n.key[idx+1:int(n.childCount)])
+	copy(n.children[idx:], n.children[idx+1:int(n.childCount)])
+	n.key[int(n.childCount)] = 0
+	n.children[int(n.childCount)] = nil
+	n.childCount--
+	if n.childCount <= 2 {
+		return newNode4(n)
 	}
 	return n
 }
 
 func (n *node16) getNextNode(key []byte) (next *node, remainingKey []byte) {
-	for i := 0; i < int(n.childCount); i++ {
-		if key[0] == n.key[i] {
+	// see https://www.superfell.com/weblog/2021/01/it-depends-episode-1
+	// and https://www.superfell.com/weblog/2021/01/it-depends-episode-2
+	// for a detailed discussion around looping vs binary search
+	_ = n.key[n.childCount-1]
+	for i := n.childCount - 1; i >= 0; i-- {
+		if n.key[i] == key[0] {
 			return &n.children[i], key[1:]
 		}
 	}
