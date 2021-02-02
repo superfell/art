@@ -243,11 +243,6 @@ func (h *nodeHeader) prependPath(prefix []byte, k ...byte) {
 	h.path = joinSlices(prefix, k, h.path)
 }
 
-// index into the children arrays for the node value leaf.
-const n4ValueIdx = 3
-const n16ValueIdx = 15
-const n48ValueIdx = 47
-
 // splitNodePath will if needed split the supplied node into 2 based on the
 // overlap of the key and the nodes compressed path. If the key and the path are the
 // same then there's no need to split and the node is returned unaltered.

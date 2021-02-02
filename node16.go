@@ -4,6 +4,9 @@ import (
 	"fmt"
 )
 
+// index into the children arrays for the node value leaf.
+const n16ValueIdx = 15
+
 type node16 struct {
 	nodeHeader
 	key      [16]byte

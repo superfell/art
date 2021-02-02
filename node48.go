@@ -4,6 +4,9 @@ import "fmt"
 
 const n48NoChildForKey byte = 255
 
+// index into the children arrays for the node value leaf.
+const n48ValueIdx = 47
+
 type node48 struct {
 	nodeHeader
 	key      [256]byte // index into children, 255 for no child

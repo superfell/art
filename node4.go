@@ -2,6 +2,9 @@ package art
 
 import "fmt"
 
+// index into the children arrays for the node value leaf.
+const n4ValueIdx = 3
+
 type node4 struct {
 	nodeHeader
 	key      [4]byte
