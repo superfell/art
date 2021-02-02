@@ -78,13 +78,6 @@ func (n *node16) setNodeValue(v *leaf) {
 	n.hasValue = true
 }
 
-func (n *node16) nodeValue() (interface{}, bool) {
-	if n.hasValue {
-		return n.children[n16ValueIdx].nodeValue()
-	}
-	return nil, false
-}
-
 func (n *node16) valueNode() *leaf {
 	if n.hasValue {
 		return n.children[n16ValueIdx].(*leaf)

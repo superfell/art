@@ -63,7 +63,11 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 		}
 		key = key[len(h.path):]
 		if len(key) == 0 {
-			return curr.nodeValue()
+			leaf := curr.valueNode()
+			if leaf != nil {
+				return leaf.value, true
+			}
+			return nil, false
 		}
 		next := curr.getNextNode(key)
 		if next == nil {
@@ -199,7 +203,6 @@ type node interface {
 	canSetNodeValue() bool
 	setNodeValue(n *leaf)
 	valueNode() *leaf
-	nodeValue() (value interface{}, exists bool)
 
 	grow() node
 

@@ -59,13 +59,6 @@ func (n *node48) setNodeValue(v *leaf) {
 	n.hasValue = true
 }
 
-func (n *node48) nodeValue() (interface{}, bool) {
-	if n.hasValue {
-		return n.children[n48ValueIdx].nodeValue()
-	}
-	return nil, false
-}
-
 func (n *node48) valueNode() *leaf {
 	if n.hasValue {
 		return n.children[n48ValueIdx].(*leaf)

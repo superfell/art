@@ -85,13 +85,6 @@ func (n *node256) getNextNode(key []byte) *node {
 	return &n.children[key[0]]
 }
 
-func (n *node256) nodeValue() (interface{}, bool) {
-	if n.hasValue {
-		return n.value.nodeValue()
-	}
-	return nil, false
-}
-
 func (n *node256) pretty(indent int, w writer) {
 	w.WriteString("[n256] ")
 	writePath(n.path, w)

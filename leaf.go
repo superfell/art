@@ -54,10 +54,6 @@ func (l *leaf) setNodeValue(v *leaf) {
 	l.value = v.value
 }
 
-func (l *leaf) nodeValue() (interface{}, bool) {
-	return l.value, true
-}
-
 func (l *leaf) valueNode() *leaf {
 	return l
 }

@@ -55,13 +55,6 @@ func (n *node4) setNodeValue(v *leaf) {
 	n.nodeHeader.hasValue = true
 }
 
-func (n *node4) nodeValue() (interface{}, bool) {
-	if n.hasValue {
-		return n.children[n4ValueIdx].nodeValue()
-	}
-	return nil, false
-}
-
 func (n *node4) valueNode() *leaf {
 	if n.hasValue {
 		return n.children[n4ValueIdx].(*leaf)
