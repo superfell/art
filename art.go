@@ -22,7 +22,7 @@ func (a *Tree) Put(key []byte, value interface{}) {
 
 func (a *Tree) put(n node, key []byte, value interface{}) node {
 	if n == nil {
-		return newLeaf(key, value)
+		return newPathLeaf(key, value)
 	}
 	key, n = splitNodePath(key, n)
 	if len(key) == 0 {
@@ -30,10 +30,10 @@ func (a *Tree) put(n node, key []byte, value interface{}) node {
 		if vn != nil {
 			vn.value = value
 		} else if n.canSetNodeValue() {
-			n.setNodeValue(newLeaf(key, value))
+			n.setNodeValue(newLeaf(value))
 		} else {
 			n = n.grow()
-			n.setNodeValue(newLeaf(key, value))
+			n.setNodeValue(newLeaf(value))
 		}
 		return n
 	}
@@ -45,7 +45,7 @@ func (a *Tree) put(n node, key []byte, value interface{}) node {
 	if !n.canAddChild() {
 		n = n.grow()
 	}
-	n.addChildNode(key[0], newLeaf(key[1:], value))
+	n.addChildNode(key[0], newPathLeaf(key[1:], value))
 	return n
 }
 
@@ -58,10 +58,10 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 	curr := a.root
 	for {
 		h := curr.header()
-		if !bytes.HasPrefix(key, h.path) {
+		if !bytes.HasPrefix(key, h.path.asSlice()) {
 			return nil, false
 		}
-		key = key[len(h.path):]
+		key = key[h.path.len:]
 		if len(key) == 0 {
 			leaf := curr.valueNode()
 			if leaf != nil {
@@ -89,10 +89,10 @@ func (a *Tree) Delete(key []byte) {
 
 func (a *Tree) delete(n node, key []byte) node {
 	h := n.header()
-	if !bytes.HasPrefix(key, h.path) {
+	if !bytes.HasPrefix(key, h.path.asSlice()) {
 		return n
 	}
-	key = key[len(h.path):]
+	key = key[h.path.len:]
 	if len(key) == 0 {
 		return n.removeValue()
 	}
@@ -102,9 +102,9 @@ func (a *Tree) delete(n node, key []byte) node {
 	}
 	*next = a.delete(*next, key[1:])
 	if *next == nil {
-		return n.removeChild(key[0])
+		n.removeChild(key[0])
 	}
-	return n
+	return n.shrink()
 }
 
 // WalkState describes how to proceed with an iteration of the tree (or partial tree).
@@ -132,7 +132,7 @@ func (a *Tree) Walk(callback ConsumerFn) {
 
 func (a *Tree) walk(n node, prefix []byte, callback ConsumerFn) WalkState {
 	h := n.header()
-	prefix = append(prefix, h.path...)
+	prefix = append(prefix, h.path.asSlice()...)
 	if h.hasValue {
 		leaf := n.valueNode()
 		if callback(prefix, leaf.value) == Stop {
@@ -185,8 +185,7 @@ type nodeConsumer func(k byte, n node) WalkState
 
 type node interface {
 	header() nodeHeader
-	trimPathStart(amount int)
-	prependPath(prefix []byte, k ...byte)
+	keyPath() *keyPath
 
 	canAddChild() bool
 	addChildNode(key byte, child node)
@@ -202,71 +201,48 @@ type node interface {
 	// tree will be updated to that one (i.e. so that nodes can shrink to
 	// a smaller type)
 	removeValue() node
-	removeChild(key byte) node
+	removeChild(key byte)
 
 	grow() node
+	shrink() node
 
 	pretty(indent int, dest writer)
 	stats(s *Stats)
 }
 
 type nodeHeader struct {
-	// additional key values to this node (for path compression, lazy expansion)
-	path []byte
 	// number of populated children in this node
 	childCount int16
 	// if set, this node has a value associated with it, not just child nodes
 	// how/where the value is kept is node type dependent. node4/16/48 keep
 	// it in the last child, and have 1 less max children
 	hasValue bool
-}
-
-func (h *nodeHeader) trimPathStart(amount int) {
-	h.path = h.path[amount:]
-}
-
-func joinSlices(a []byte, b []byte, c []byte) []byte {
-	lenA := len(a)
-	lenB := len(b)
-	dst := make([]byte, lenA+lenB+len(c))
-	copy(dst, a)
-	copy(dst[lenA:], b)
-	copy(dst[lenA+lenB:], c)
-	return dst
-}
-
-func (h *nodeHeader) prependPath(prefix []byte, k ...byte) {
-	// this stupid dance is because prefix points into the overall key slice
-	// and if we just blindly append(prefix, k, h.path...) this will mutate
-	// the part of the key after the prefix and break many things.
-	// yet another reason to make path a [24]byte instead.
-	h.path = joinSlices(prefix, k, h.path)
+	// additional key values to this node (for path compression, lazy expansion)
+	path keyPath
 }
 
 // splitNodePath will if needed split the supplied node into 2 based on the
 // overlap of the key and the nodes compressed path. If the key and the path are the
 // same then there's no need to split and the node is returned unaltered.
 func splitNodePath(key []byte, n node) (remainingKey []byte, out node) {
-	path := n.header().path
+	h := n.header()
+	path := h.path.asSlice()
 	prefixLen := prefixSize(key, path)
 	if prefixLen < len(path) {
 		// need to split into 2
 		parent := &node4{}
-		parent.path = path[:prefixLen]
-		parent.childCount = 1
-		parent.key[0] = path[prefixLen]
-		parent.children[0] = n
+		parent.path.assign(path[:prefixLen])
+		parent.addChildNode(path[prefixLen], n)
 		// +1 because we consumed a byte for the child key
-		n.trimPathStart(prefixLen + 1)
+		n.keyPath().trimPathStart(prefixLen + 1)
 		return key[prefixLen:], parent
 	}
 	return key[prefixLen:], n
 }
 
-func writePath(p []byte, w writer) {
+func writePath(p []byte, w io.Writer) {
 	for _, k := range p {
-		w.WriteByte(' ')
-		fmt.Fprintf(w, "0x%02X", k)
+		fmt.Fprintf(w, " 0x%02X", k)
 	}
 }
 
@@ -283,7 +259,7 @@ func writeNode(n node, name string, indent int, w writer) {
 	w.WriteByte('[')
 	w.WriteString(name)
 	h := n.header()
-	writePath(h.path, w)
+	writePath(h.path.asSlice(), w)
 	w.WriteString("] ")
 	if h.hasValue {
 		w.WriteString(" value: ")

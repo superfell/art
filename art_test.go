@@ -10,27 +10,6 @@ import (
 	"testing"
 )
 
-func Test_JoinSlices(t *testing.T) {
-	kEmpty := []byte(nil)
-	k1 := []byte{15}
-	k5 := []byte{1, 2, 3, 4, 5}
-	test := func(a, b, c, exp []byte) {
-		t.Helper()
-		act := joinSlices(a, b, c)
-		if !bytes.Equal(act, exp) {
-			t.Errorf("joinSlice(%v,%v,%v) expected to generate %v but was %v", a, b, c, exp, act)
-		}
-	}
-	test(kEmpty, kEmpty, kEmpty, kEmpty)
-	test(k1, kEmpty, kEmpty, k1)
-	test(kEmpty, k5, kEmpty, k5)
-	test(kEmpty, kEmpty, k1, k1)
-	test(kEmpty, k1, k5, []byte{15, 1, 2, 3, 4, 5})
-	test(k1, kEmpty, k5, []byte{15, 1, 2, 3, 4, 5})
-	test(k1, k5, kEmpty, []byte{15, 1, 2, 3, 4, 5})
-	test(k1, k5, []byte{22, 23}, []byte{15, 1, 2, 3, 4, 5, 22, 23})
-}
-
 func Test_WriteIndent(t *testing.T) {
 	for i := 2; i < 40; i++ {
 		t.Run(fmt.Sprintf("length %d", i), func(t *testing.T) {
@@ -165,6 +144,26 @@ func Test_NodeInsertSplitsCompressedPath(t *testing.T) {
 				inserts = append(inserts, kv([]byte{1, 2, 3, 4, 5, 6, 7, byte(i + 10)}, i))
 			}
 			inserts = append(inserts, kv([]byte{1, 2, 3}, "123"))
+			testArt(t, inserts, tc.stats)
+		})
+	}
+}
+
+func Test_CompressedPathLargerThan24(t *testing.T) {
+	cases := []simpleCase{
+		{2, &Stats{Node4s: 5, Keys: 4}},
+		{12, &Stats{Node4s: 4, Node16s: 1, Keys: 14}},
+		{40, &Stats{Node4s: 4, Node48s: 1, Keys: 42}},
+		{200, &Stats{Node4s: 4, Node256s: 1, Keys: 202}},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("c_%d", tc.children), func(t *testing.T) {
+			inserts := []keyVal{}
+			for i := 0; i < tc.children; i++ {
+				inserts = append(inserts, kv([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 24, 25, 26, 27, 28, 29, 30, byte(i + 10)}, i))
+			}
+			inserts = append(inserts, kv([]byte{1, 2, 3}, "123"))
+			inserts = append(inserts, kv([]byte{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}, "234..."))
 			testArt(t, inserts, tc.stats)
 		})
 	}
@@ -322,21 +321,25 @@ func Test_MoreWalk(t *testing.T) {
 }
 
 func testArt(t *testing.T, inserts []keyVal, expectedStats *Stats) {
-	t.Run("normal", func(t *testing.T) {
-		testArtOne(t, inserts, expectedStats)
-	})
-	t.Run("reverse insertion order", func(t *testing.T) {
-		testArtOne(t, reverse(inserts), expectedStats)
-	})
-	t.Run("write twice", func(t *testing.T) {
-		testArtOne(t, append(inserts, inserts...), expectedStats)
-	})
-	t.Run("write twice in reverse", func(t *testing.T) {
-		testArtOne(t, reverse(append(inserts, inserts...)), expectedStats)
-	})
+	deleters := []func([]keyVal) []keyVal{randDeleteOrder, deleteLongestFirst, deleteShortestFirst}
+	names := []string{"random", "longest to shortest", "shortest to longest"}
+	for i := 0; i < len(deleters); i++ {
+		t.Run(fmt.Sprintf("normal/deletes %s", names[i]), func(t *testing.T) {
+			testArtOne(t, inserts, deleters[i], expectedStats)
+		})
+		t.Run(fmt.Sprintf("reverse insertion order/deletes %s", names[i]), func(t *testing.T) {
+			testArtOne(t, reverse(inserts), deleters[i], expectedStats)
+		})
+		t.Run(fmt.Sprintf("write twice/deletes %s", names[i]), func(t *testing.T) {
+			testArtOne(t, append(inserts, inserts...), deleters[i], expectedStats)
+		})
+		t.Run(fmt.Sprintf("write twice in reverse/deletes %s", names[i]), func(t *testing.T) {
+			testArtOne(t, reverse(append(inserts, inserts...)), deleters[i], expectedStats)
+		})
+	}
 }
 
-func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
+func testArtOne(t *testing.T, inserts []keyVal, deleteOrderer func([]keyVal) []keyVal, expectedStats *Stats) {
 	a := new(Tree)
 	defer func() {
 		if t.Failed() {
@@ -378,14 +381,11 @@ func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 		t.FailNow() // no point to keep going
 	}
 
-	deletes := append([]keyVal{}, inserts...)
-	rnd.Shuffle(len(deletes), func(i, j int) {
-		deletes[i], deletes[j] = deletes[j], deletes[i]
-	})
+	deletes := deleteOrderer(inserts)
 
 	for _, kv := range deletes {
 		before := pretty(a)
-		// t.Logf("About to delete key %s", hexPath(kv.key))
+		//t.Logf("About to delete key %s", hexPath(kv.key))
 		a.Delete(kv.key)
 		store.delete(kv.key)
 		hasKeyVals(t, a, store.ordered())
@@ -395,6 +395,30 @@ func testArtOne(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 			t.FailNow() // no point to keep going
 		}
 	}
+}
+
+func randDeleteOrder(i []keyVal) []keyVal {
+	deletes := append([]keyVal{}, i...)
+	rnd.Shuffle(len(deletes), func(i, j int) {
+		deletes[i], deletes[j] = deletes[j], deletes[i]
+	})
+	return deletes
+}
+
+func deleteLongestFirst(i []keyVal) []keyVal {
+	deletes := append([]keyVal{}, i...)
+	sort.Slice(deletes, func(i, j int) bool {
+		return len(deletes[j].key) < len(deletes[i].key)
+	})
+	return deletes
+}
+
+func deleteShortestFirst(i []keyVal) []keyVal {
+	deletes := append([]keyVal{}, i...)
+	sort.Slice(deletes, func(i, j int) bool {
+		return len(deletes[i].key) < len(deletes[j].key)
+	})
+	return deletes
 }
 
 // rndKey returns a random generated key

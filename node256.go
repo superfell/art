@@ -23,6 +23,10 @@ func (n *node256) header() nodeHeader {
 	return n.nodeHeader
 }
 
+func (n *node256) keyPath() *keyPath {
+	return &n.path
+}
+
 func (n *node256) grow() node {
 	panic("Can't grow a node256")
 }
@@ -66,9 +70,12 @@ func (n *node256) removeValue() node {
 	return n
 }
 
-func (n *node256) removeChild(k byte) node {
+func (n *node256) removeChild(k byte) {
 	n.children[k] = nil
 	n.childCount--
+}
+
+func (n *node256) shrink() node {
 	if n.childCount < 48*3/4 {
 		return newNode48(n)
 	}
