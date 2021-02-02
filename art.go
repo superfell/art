@@ -22,7 +22,7 @@ func (a *Tree) Put(key []byte, value interface{}) {
 
 func (a *Tree) put(n node, key []byte, value interface{}) node {
 	if n == nil {
-		return newNode(key, value)
+		return newLeaf(key, value)
 	}
 	n, _, prefixLen := splitNodePath(key, n)
 	key = key[prefixLen:]
@@ -31,10 +31,10 @@ func (a *Tree) put(n node, key []byte, value interface{}) node {
 		if vn != nil {
 			vn.value = value
 		} else if n.canSetNodeValue() {
-			n.setNodeValue(newNode(key, value))
+			n.setNodeValue(newLeaf(key, value))
 		} else {
 			n = n.grow()
-			n.setNodeValue(newNode(key, value))
+			n.setNodeValue(newLeaf(key, value))
 		}
 		return n
 	}
@@ -46,7 +46,7 @@ func (a *Tree) put(n node, key []byte, value interface{}) node {
 	if !n.canAddChild() {
 		n = n.grow()
 	}
-	n.addChildNode(key[0], newNode(key[1:], value))
+	n.addChildNode(key[0], newLeaf(key[1:], value))
 	return n
 }
 
@@ -207,13 +207,6 @@ type node interface {
 	iterateChildren(cb nodeConsumer) WalkState
 	pretty(indent int, dest writer)
 	stats(s *Stats)
-}
-
-func newNode(key []byte, value interface{}) *leaf {
-	return &leaf{
-		path:  key,
-		value: value,
-	}
 }
 
 type nodeHeader struct {

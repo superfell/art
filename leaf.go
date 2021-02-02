@@ -7,6 +7,13 @@ type leaf struct {
 	path  []byte
 }
 
+func newLeaf(key []byte, value interface{}) *leaf {
+	return &leaf{
+		path:  key,
+		value: value,
+	}
+}
+
 func (l *leaf) header() nodeHeader {
 	return nodeHeader{
 		path:     l.path,
