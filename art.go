@@ -188,7 +188,14 @@ type node interface {
 	trimPathStart(amount int)
 	prependPath(prefix []byte, k ...byte)
 
+	canAddChild() bool
+	addChildNode(key byte, child node)
 	getChildNode(key []byte) *node
+	iterateChildren(cb nodeConsumer) WalkState
+
+	canSetNodeValue() bool
+	setNodeValue(n *leaf)
+	valueNode() *leaf
 
 	// remove the value (or child) for this node, the node can be removed from the tree
 	// if it returns nil, or it can return a different node instance and the
@@ -197,16 +204,8 @@ type node interface {
 	removeValue() node
 	removeChild(key byte) node
 
-	canAddChild() bool
-	addChildNode(key byte, child node)
-
-	canSetNodeValue() bool
-	setNodeValue(n *leaf)
-	valueNode() *leaf
-
 	grow() node
 
-	iterateChildren(cb nodeConsumer) WalkState
 	pretty(indent int, dest writer)
 	stats(s *Stats)
 }
