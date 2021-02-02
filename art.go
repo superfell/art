@@ -8,13 +8,13 @@ import (
 )
 
 // Tree is an Adaptive Radix Tree. Keys are arbitrary byte slices, and the path through the tree
-// is the key. values are stored on Leafs of the tree. The tree is organized in lexicographical
+// is the key. Values are stored on Leaves of the tree. The tree is organized in lexicographical
 // order of the keys.
 type Tree struct {
 	root node
 }
 
-// Put inserts or updates a value in the tree associated with the provided key. value can be any
+// Put inserts or updates a value in the tree associated with the provided key. Value can be any
 // interface value, including nil. key can be an arbitrary byte slice, including the empty slice.
 func (a *Tree) Put(key []byte, value interface{}) {
 	a.root = a.put(a.root, key, value)
@@ -50,7 +50,7 @@ func (a *Tree) put(n node, key []byte, value interface{}) node {
 }
 
 // Get the value for the provided key. exists is true if the key contains a value in the tree,
-// false otherwise. This can be useful if you are storing nil values in the tree.
+// false otherwise. The exists flag can be useful if you are storing nil values in the tree.
 func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 	if a.root == nil {
 		return nil, false
@@ -117,8 +117,11 @@ const (
 	Stop
 )
 
-// ConsumerFn is the type of the callback function. It is called with key/value pairs
-// and the return value can be used to signal to continue or stop the iteration.
+// ConsumerFn is the type of the callback function. It is called with key/value pairs in key order
+// and the return value can be used to signal to continue or stop the iteration. The
+// key value is only valid for the duration of the callback, and it should not be
+// modified. If the callback needs access to the key after the callback returns, it
+// must copy the key. The tree should not be modified during a callback.
 type ConsumerFn func(key []byte, value interface{}) WalkState
 
 // Walk will call the provided callback function with each key/value pair, in key order.
