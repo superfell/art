@@ -264,15 +264,9 @@ func splitNodePath(key []byte, n node) (remainingKey []byte, out node) {
 }
 
 func writePath(p []byte, w writer) {
-	if len(p) > 0 {
-		w.WriteString(" [")
-		for i, k := range p {
-			if i > 0 {
-				w.WriteByte(' ')
-			}
-			fmt.Fprintf(w, "0x%02X", k)
-		}
-		w.WriteByte(']')
+	for _, k := range p {
+		w.WriteByte(' ')
+		fmt.Fprintf(w, "0x%02X", k)
 	}
 }
 
@@ -283,6 +277,26 @@ func writeIndent(indent int, w io.Writer) {
 		spaces = bytes.Repeat([]byte{' '}, indent*2)
 	}
 	w.Write(spaces[:indent])
+}
+
+func writeNode(n node, name string, indent int, w writer) {
+	w.WriteByte('[')
+	w.WriteString(name)
+	h := n.header()
+	writePath(h.path, w)
+	w.WriteString("] ")
+	if h.hasValue {
+		w.WriteString(" value: ")
+		n.valueNode().pretty(indent, w)
+	} else {
+		w.WriteByte('\n')
+	}
+	n.iterateChildren(func(k byte, child node) WalkState {
+		writeIndent(indent+2, w)
+		fmt.Fprintf(w, "0x%02X: ", k)
+		child.pretty(indent+8, w)
+		return Continue
+	})
 }
 
 // prefixSize returns the length of the common prefix of the 2 slices.

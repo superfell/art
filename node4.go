@@ -1,7 +1,5 @@
 package art
 
-import "fmt"
-
 // index into the children arrays for the node value leaf.
 const n4ValueIdx = 3
 
@@ -133,19 +131,7 @@ func (n *node4) getChildNode(key []byte) *node {
 }
 
 func (n *node4) pretty(indent int, w writer) {
-	w.WriteString("[n4] ")
-	writePath(n.path, w)
-	if n.hasValue {
-		w.WriteString(" value: ")
-		n.children[n4ValueIdx].pretty(indent, w)
-	} else {
-		w.WriteByte('\n')
-	}
-	for i := 0; i < int(n.childCount); i++ {
-		writeIndent(indent+2, w)
-		fmt.Fprintf(w, "0x%02X: ", n.key[i])
-		n.children[i].pretty(indent+8, w)
-	}
+	writeNode(n, "n4", indent, w)
 }
 
 func (n *node4) stats(s *Stats) {
