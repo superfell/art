@@ -17,11 +17,37 @@ type Tree struct {
 // Put inserts or updates a value in the tree associated with the provided key. value can be any
 // interface value, including nil. key can be an arbitrary byte slice, including the empty slice.
 func (a *Tree) Put(key []byte, value interface{}) {
-	if a.root == nil {
-		a.root = newNode(key, value)
-	} else {
-		a.root = a.root.insert(key, value)
+	a.root = a.put(a.root, key, value)
+}
+
+func (a *Tree) put(n node, key []byte, value interface{}) node {
+	if n == nil {
+		return newNode(key, value)
 	}
+	n, _, prefixLen := splitNodePath(key, n)
+	key = key[prefixLen:]
+	if len(key) == 0 {
+		vn := n.valueNode()
+		if vn != nil {
+			vn.value = value
+		} else if n.canSetNodeValue() {
+			n.setNodeValue(newNode(key, value))
+		} else {
+			n = n.grow()
+			n.setNodeValue(newNode(key, value))
+		}
+		return n
+	}
+	child := n.getNextNode(key)
+	if child != nil {
+		*child = a.put(*child, key[1:], value)
+		return n
+	}
+	if !n.canAddChild() {
+		n = n.grow()
+	}
+	n.addChildNode(key[0], newNode(key[1:], value))
+	return n
 }
 
 // Get the value for the provided key. exists is true if the key contains a value in the tree,
@@ -40,12 +66,12 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 		if len(key) == 0 {
 			return curr.nodeValue()
 		}
-		next, remainingKey := curr.getNextNode(key)
+		next := curr.getNextNode(key)
 		if next == nil {
 			return nil, false
 		}
 		curr = *next
-		key = remainingKey
+		key = key[1:]
 	}
 }
 
@@ -67,11 +93,11 @@ func (a *Tree) delete(n node, key []byte) node {
 	if len(key) == 0 {
 		return n.removeValue()
 	}
-	next, remainingKey := n.getNextNode(key)
+	next := n.getNextNode(key)
 	if next == nil {
 		return n
 	}
-	*next = a.delete(*next, remainingKey)
+	*next = a.delete(*next, key[1:])
 	if *next == nil {
 		return n.removeChild(key[0])
 	}
@@ -105,7 +131,7 @@ func (a *Tree) walk(n node, prefix []byte, callback ConsumerFn) WalkState {
 	h := n.header()
 	prefix = append(prefix, h.path...)
 	if h.hasValue {
-		leaf := n.valueNode().(*leaf)
+		leaf := n.valueNode()
 		if callback(prefix, leaf.value) == Stop {
 			return Stop
 		}
@@ -156,11 +182,10 @@ type nodeConsumer func(k byte, n node) WalkState
 
 type node interface {
 	header() nodeHeader
-	insert(key []byte, value interface{}) node
 	trimPathStart(amount int)
 	prependPath(prefix []byte, k ...byte)
 
-	getNextNode(key []byte) (next *node, remainingKey []byte)
+	getNextNode(key []byte) *node
 
 	// remove the value (or child) for this node, the node can be removed from the tree
 	// if it returns nil, or it can return a different node instance and the
@@ -169,16 +194,22 @@ type node interface {
 	removeValue() node
 	removeChild(key byte) node
 
-	valueNode() node
-	iterateChildren(cb nodeConsumer) WalkState
+	canAddChild() bool
+	addChildNode(key byte, child node)
 
+	canSetNodeValue() bool
+	setNodeValue(n *leaf)
+	valueNode() *leaf
 	nodeValue() (value interface{}, exists bool)
 
+	grow() node
+
+	iterateChildren(cb nodeConsumer) WalkState
 	pretty(indent int, dest writer)
 	stats(s *Stats)
 }
 
-func newNode(key []byte, value interface{}) node {
+func newNode(key []byte, value interface{}) *leaf {
 	return &leaf{
 		path:  key,
 		value: value,
@@ -226,7 +257,8 @@ const n48ValueIdx = 47
 // splitNodePath will if needed split the supplied node into 2 based on the
 // overlap of the key and the nodes compressed path. If the key and the path are the
 // same then there's no need to split and the node is returned unaltered.
-func splitNodePath(key []byte, path []byte, n node) (out node, replaced bool, prefixLen int) {
+func splitNodePath(key []byte, n node) (out node, replaced bool, prefixLen int) {
+	path := n.header().path
 	prefixLen = prefixSize(key, path)
 	if prefixLen < len(path) {
 		// need to split into 2

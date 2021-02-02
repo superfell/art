@@ -14,6 +14,15 @@ func (l *leaf) header() nodeHeader {
 	}
 }
 
+func (l *leaf) grow() node {
+	// we need to promote this leaf to a node with a contained value
+	n := &node4{}
+	n.path = l.path
+	l.path = nil
+	n.setNodeValue(l)
+	return n
+}
+
 func (l *leaf) trimPathStart(amount int) {
 	l.path = l.path[amount:]
 }
@@ -22,31 +31,27 @@ func (l *leaf) prependPath(prefix []byte, k ...byte) {
 	l.path = joinSlices(prefix, k, l.path)
 }
 
-func (l *leaf) insert(key []byte, value interface{}) node {
-	// may need to split this so that the child nodes can be added
-	splitN, replaced, prefixLen := splitNodePath(key, l.path, l)
-	if replaced {
-		return splitN.insert(key, value)
-	}
-	if prefixLen == len(key) && prefixLen == len(l.path) {
-		// this is our stop
-		l.value = value
-		return l
-	}
-	// we need to promote this leaf to a node with a contained value
-	n := &node4{}
-	n.path = l.path
-	l.path = nil
-	n.hasValue = true
-	n.children[3] = l
-	return n.insert(key, value)
+func (l *leaf) canAddChild() bool {
+	return false
+}
+
+func (l *leaf) addChildNode(key byte, child node) {
+	panic("Can't add a childNode to a leaf")
+}
+
+func (l *leaf) canSetNodeValue() bool {
+	return true
+}
+
+func (l *leaf) setNodeValue(v *leaf) {
+	l.value = v.value
 }
 
 func (l *leaf) nodeValue() (interface{}, bool) {
 	return l.value, true
 }
 
-func (l *leaf) valueNode() node {
+func (l *leaf) valueNode() *leaf {
 	return l
 }
 
@@ -62,8 +67,8 @@ func (l *leaf) removeChild(key byte) node {
 	panic("removeChild called on leaf")
 }
 
-func (l *leaf) getNextNode(key []byte) (next *node, remainingKey []byte) {
-	return nil, nil
+func (l *leaf) getNextNode(key []byte) *node {
+	return nil
 }
 
 func (l *leaf) pretty(indent int, w writer) {

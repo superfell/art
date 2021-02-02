@@ -4,18 +4,14 @@ import "fmt"
 
 type node256 struct {
 	children [256]node
-	value    node
+	value    *leaf
 	nodeHeader
-}
-
-func (n *node256) header() nodeHeader {
-	return n.nodeHeader
 }
 
 func newNode256(src *node48) *node256 {
 	n := &node256{nodeHeader: src.nodeHeader}
 	if src.hasValue {
-		n.value = src.children[n48ValueIdx]
+		n.value = src.valueNode()
 	}
 	for k, slot := range src.key {
 		if slot != n48NoChildForKey {
@@ -25,32 +21,33 @@ func newNode256(src *node48) *node256 {
 	return n
 }
 
-func (n *node256) insert(key []byte, value interface{}) node {
-	splitN, replaced, prefixLen := splitNodePath(key, n.path, n)
-	if replaced {
-		return splitN.insert(key, value)
-	}
-	key = key[prefixLen:]
-	if len(key) == 0 {
-		if n.hasValue {
-			n.value.insert(key, value)
-		} else {
-			n.hasValue = true
-			n.value = newNode(key, value)
-		}
-		return n
-	}
-	c := n.children[key[0]]
-	if c == nil {
-		n.children[key[0]] = newNode(key[1:], value)
-		n.childCount++
-	} else {
-		n.children[key[0]] = c.insert(key[1:], value)
-	}
-	return n
+func (n *node256) header() nodeHeader {
+	return n.nodeHeader
 }
 
-func (n *node256) valueNode() node {
+func (n *node256) grow() node {
+	panic("Can't grow a node256")
+}
+
+func (n *node256) canAddChild() bool {
+	return true
+}
+
+func (n *node256) addChildNode(key byte, child node) {
+	n.children[key] = child
+	n.childCount++
+}
+
+func (n *node256) canSetNodeValue() bool {
+	return true
+}
+
+func (n *node256) setNodeValue(v *leaf) {
+	n.value = v
+	n.hasValue = true
+}
+
+func (n *node256) valueNode() *leaf {
 	return n.value
 }
 
@@ -80,12 +77,12 @@ func (n *node256) removeChild(k byte) node {
 	return n
 }
 
-func (n *node256) getNextNode(key []byte) (next *node, remainingKey []byte) {
+func (n *node256) getNextNode(key []byte) *node {
 	c := n.children[key[0]]
 	if c == nil {
-		return nil, nil
+		return nil
 	}
-	return &n.children[key[0]], key[1:]
+	return &n.children[key[0]]
 }
 
 func (n *node256) nodeValue() (interface{}, bool) {

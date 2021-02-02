@@ -10,10 +10,6 @@ type node48 struct {
 	children [48]node
 }
 
-func (n *node48) header() nodeHeader {
-	return n.nodeHeader
-}
-
 func newNode48(src node) *node48 {
 	n := &node48{nodeHeader: src.header()}
 	for i := range n.key {
@@ -32,54 +28,35 @@ func newNode48(src node) *node48 {
 	return n
 }
 
-func (n *node48) insert(key []byte, value interface{}) node {
-	splitN, replaced, prefixLen := splitNodePath(key, n.path, n)
-	if replaced {
-		return splitN.insert(key, value)
-	}
-	key = key[prefixLen:]
-	if len(key) == 0 {
-		// we're trying to insert a value at this path, and this path
-		// is the prefix of some other path.
-		// if we already have a value, then just update it
-		if n.nodeHeader.hasValue {
-			n.children[n48ValueIdx].insert(key, value)
-			return n
-		}
-		if n.nodeHeader.childCount < 48 {
-			n.nodeHeader.hasValue = true
-			n.children[n48ValueIdx] = newNode(key, value)
-			return n
-		}
-		// We're full, need to grow to a larger node size first
-		n256 := newNode256(n)
-		n256.value = newNode(key, value)
-		n256.hasValue = true
-		return n256
-	}
-	slot := n.key[key[0]]
-	if slot < n48NoChildForKey {
-		n.children[slot] = n.children[slot].insert(key[1:], value)
-		return n
-	}
-	maxSlots := int16(len(n.children))
-	if n.hasValue {
-		maxSlots--
-	}
-	if n.childCount < maxSlots {
-		n.addChildLeaf(key, value)
-		return n
-	}
-	n256 := newNode256(n)
-	n256.children[key[0]] = newNode(key[1:], value)
-	n256.childCount++
-	return n256
+func (n *node48) header() nodeHeader {
+	return n.nodeHeader
 }
 
-func (n *node48) addChildLeaf(key []byte, val interface{}) {
-	n.key[key[0]] = byte(n.childCount)
-	n.children[n.childCount] = newNode(key[1:], val)
+func (n *node48) grow() node {
+	return newNode256(n)
+}
+
+func (n *node48) canAddChild() bool {
+	max := int16(len(n.children))
+	if n.hasValue {
+		max--
+	}
+	return n.childCount < max
+}
+
+func (n *node48) addChildNode(key byte, child node) {
+	n.key[key] = byte(n.childCount)
+	n.children[n.childCount] = child
 	n.childCount++
+}
+
+func (n *node48) canSetNodeValue() bool {
+	return n.childCount < 48
+}
+
+func (n *node48) setNodeValue(v *leaf) {
+	n.children[n48ValueIdx] = v
+	n.hasValue = true
 }
 
 func (n *node48) nodeValue() (interface{}, bool) {
@@ -89,9 +66,9 @@ func (n *node48) nodeValue() (interface{}, bool) {
 	return nil, false
 }
 
-func (n *node48) valueNode() node {
+func (n *node48) valueNode() *leaf {
 	if n.hasValue {
-		return n.children[n48ValueIdx]
+		return n.children[n48ValueIdx].(*leaf)
 	}
 	return nil
 }
@@ -138,12 +115,12 @@ func (n *node48) removeChild(key byte) node {
 	return n
 }
 
-func (n *node48) getNextNode(key []byte) (next *node, remainingKey []byte) {
+func (n *node48) getNextNode(key []byte) *node {
 	idx := n.key[key[0]]
 	if idx == n48NoChildForKey {
-		return nil, nil
+		return nil
 	}
-	return &n.children[idx], key[1:]
+	return &n.children[idx]
 }
 
 func (n *node48) pretty(indent int, w writer) {
