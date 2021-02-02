@@ -75,9 +75,9 @@ func (l *leaf) getChildNode(key []byte) *node {
 }
 
 func (l *leaf) pretty(indent int, w writer) {
-	w.WriteString("[leaf] ")
+	w.WriteString("[leaf")
 	writePath(l.path, w)
-	fmt.Fprintf(w, " value:%v\n", l.value)
+	fmt.Fprintf(w, "] value:%v\n", l.value)
 }
 
 func (l *leaf) stats(s *Stats) {

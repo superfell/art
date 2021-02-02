@@ -1,7 +1,5 @@
 package art
 
-import "fmt"
-
 type node256 struct {
 	children [256]node
 	value    *leaf
@@ -86,19 +84,7 @@ func (n *node256) getChildNode(key []byte) *node {
 }
 
 func (n *node256) pretty(indent int, w writer) {
-	w.WriteString("[n256] ")
-	writePath(n.path, w)
-	if n.hasValue {
-		fmt.Fprintf(w, "value: %v", n.value)
-	}
-	w.WriteByte('\n')
-	for idx, c := range n.children {
-		if c != nil {
-			writeIndent(indent+2, w)
-			fmt.Fprintf(w, "0x%02X: ", idx)
-			c.pretty(indent+8, w)
-		}
-	}
+	writeNode(n, "n256", indent, w)
 }
 
 func (n *node256) stats(s *Stats) {

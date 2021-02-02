@@ -1,7 +1,5 @@
 package art
 
-import "fmt"
-
 const n48NoChildForKey byte = 255
 
 // index into the children arrays for the node value leaf.
@@ -120,21 +118,7 @@ func (n *node48) getChildNode(key []byte) *node {
 }
 
 func (n *node48) pretty(indent int, w writer) {
-	w.WriteString("[n48] ")
-	writePath(n.path, w)
-	if n.hasValue {
-		w.WriteString(" value: ")
-		n.children[n48ValueIdx].pretty(indent, w)
-	} else {
-		w.WriteByte('\n')
-	}
-	for k, slot := range n.key {
-		if slot != n48NoChildForKey {
-			writeIndent(indent+2, w)
-			fmt.Fprintf(w, "0x%02X: ", k)
-			n.children[slot].pretty(indent+8, w)
-		}
-	}
+	writeNode(n, "n48", indent, w)
 }
 
 func (n *node48) stats(s *Stats) {

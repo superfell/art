@@ -134,19 +134,7 @@ func (n *node16) getChildNode(key []byte) *node {
 }
 
 func (n *node16) pretty(indent int, w writer) {
-	w.WriteString("[n16] ")
-	writePath(n.path, w)
-	if n.hasValue {
-		w.WriteString(" value: ")
-		n.children[n16ValueIdx].pretty(indent, w)
-	} else {
-		w.WriteByte('\n')
-	}
-	for i := 0; i < int(n.childCount); i++ {
-		writeIndent(indent+2, w)
-		fmt.Fprintf(w, "0x%02X: ", n.key[i])
-		n.children[i].pretty(indent+8, w)
-	}
+	writeNode(n, "n16", indent, w)
 }
 
 func (n *node16) stats(s *Stats) {
