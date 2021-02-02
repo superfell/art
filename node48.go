@@ -108,7 +108,7 @@ func (n *node48) removeChild(key byte) node {
 	return n
 }
 
-func (n *node48) getNextNode(key []byte) *node {
+func (n *node48) getChildNode(key []byte) *node {
 	idx := n.key[key[0]]
 	if idx == n48NoChildForKey {
 		return nil

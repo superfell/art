@@ -70,7 +70,7 @@ func (l *leaf) removeChild(key byte) node {
 	panic("removeChild called on leaf")
 }
 
-func (l *leaf) getNextNode(key []byte) *node {
+func (l *leaf) getChildNode(key []byte) *node {
 	return nil
 }
 

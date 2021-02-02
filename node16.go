@@ -117,7 +117,7 @@ func (n *node16) removeChild(k byte) node {
 	return n
 }
 
-func (n *node16) getNextNode(key []byte) *node {
+func (n *node16) getChildNode(key []byte) *node {
 	// see https://www.superfell.com/weblog/2021/01/it-depends-episode-1
 	// and https://www.superfell.com/weblog/2021/01/it-depends-episode-2
 	// for a detailed discussion around looping vs binary search

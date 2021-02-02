@@ -77,7 +77,7 @@ func (n *node256) removeChild(k byte) node {
 	return n
 }
 
-func (n *node256) getNextNode(key []byte) *node {
+func (n *node256) getChildNode(key []byte) *node {
 	c := n.children[key[0]]
 	if c == nil {
 		return nil

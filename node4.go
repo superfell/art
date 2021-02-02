@@ -120,7 +120,7 @@ func (n *node4) removeChild(k byte) node {
 	return n
 }
 
-func (n *node4) getNextNode(key []byte) *node {
+func (n *node4) getChildNode(key []byte) *node {
 	for i := 0; i < int(n.childCount); i++ {
 		if key[0] == n.key[i] {
 			return &n.children[i]

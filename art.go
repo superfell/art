@@ -37,7 +37,7 @@ func (a *Tree) put(n node, key []byte, value interface{}) node {
 		}
 		return n
 	}
-	child := n.getNextNode(key)
+	child := n.getChildNode(key)
 	if child != nil {
 		*child = a.put(*child, key[1:], value)
 		return n
@@ -69,7 +69,7 @@ func (a *Tree) Get(key []byte) (value interface{}, exists bool) {
 			}
 			return nil, false
 		}
-		next := curr.getNextNode(key)
+		next := curr.getChildNode(key)
 		if next == nil {
 			return nil, false
 		}
@@ -96,7 +96,7 @@ func (a *Tree) delete(n node, key []byte) node {
 	if len(key) == 0 {
 		return n.removeValue()
 	}
-	next := n.getNextNode(key)
+	next := n.getChildNode(key)
 	if next == nil {
 		return n
 	}
@@ -188,7 +188,7 @@ type node interface {
 	trimPathStart(amount int)
 	prependPath(prefix []byte, k ...byte)
 
-	getNextNode(key []byte) *node
+	getChildNode(key []byte) *node
 
 	// remove the value (or child) for this node, the node can be removed from the tree
 	// if it returns nil, or it can return a different node instance and the
