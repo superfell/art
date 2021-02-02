@@ -28,6 +28,10 @@ func (n *node4) header() nodeHeader {
 	return n.nodeHeader
 }
 
+func (n *node4) keyPath() *keyPath {
+	return &n.path
+}
+
 func (n *node4) grow() node {
 	return newNode16(n)
 }
@@ -48,7 +52,7 @@ func (n *node4) addChildNode(key byte, child node) {
 }
 
 func (n *node4) canSetNodeValue() bool {
-	return n.nodeHeader.childCount < 4
+	return int(n.nodeHeader.childCount) < len(n.key)
 }
 
 func (n *node4) setNodeValue(v *leaf) {
@@ -86,27 +90,38 @@ func (n *node4) iterateChildren(cb nodeConsumer) WalkState {
 func (n *node4) removeValue() node {
 	n.children[n4ValueIdx] = nil
 	n.hasValue = false
-	return n.shrinkMeMaybe()
+	return n.shrink()
 }
 
-func (n *node4) shrinkMeMaybe() node {
+func (n *node4) shrink() node {
 	if n.childCount == 1 && !n.hasValue {
 		// when we're down to 1 child, we can add our path and the child's key to the start of its path
 		// and return that instead
 		c := n.children[0]
-		c.prependPath(n.path, n.key[0])
-		return c
+		cp := c.keyPath()
+		if cp.canExtendBy(n.path.len + 1) {
+			c.keyPath().prependPath(n.keyPath().asSlice(), n.key[0])
+			return c
+		}
+		return n
 	}
-	if n.childCount == 0 && n.hasValue {
-		// if all we have is our value, we can add our path to the values key, and return that
-		v := n.children[n4ValueIdx]
-		v.prependPath(n.path)
-		return v
+	if n.childCount == 0 {
+		if n.hasValue {
+			// if all we have is our value, we can add our path to the values key, and return that
+			v := n.children[n4ValueIdx]
+			vp := v.keyPath()
+			if vp.canExtendBy(n.path.len) {
+				v.keyPath().prependPath(n.keyPath().asSlice())
+				return v
+			}
+			return n
+		}
+		return nil
 	}
 	return n
 }
 
-func (n *node4) removeChild(k byte) node {
+func (n *node4) removeChild(k byte) {
 	lastIdx := n.childCount - 1
 	for i := 0; i < int(n.childCount); i++ {
 		if k == n.key[i] {
@@ -115,10 +130,9 @@ func (n *node4) removeChild(k byte) node {
 			n.key[i] = n.key[lastIdx]
 			n.key[lastIdx] = 0
 			n.childCount--
-			return n.shrinkMeMaybe()
+			return
 		}
 	}
-	return n
 }
 
 func (n *node4) getChildNode(key []byte) *node {

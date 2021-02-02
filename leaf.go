@@ -2,16 +2,42 @@ package art
 
 import "fmt"
 
+var emptyPath [24]byte
+
 type leaf struct {
 	value interface{}
-	path  []byte
+	path  keyPath
 }
 
-func newLeaf(key []byte, value interface{}) *leaf {
-	return &leaf{
-		path:  key,
-		value: value,
+func newLeaf(value interface{}) *leaf {
+	return &leaf{value: value}
+}
+
+func newPathLeaf(key []byte, value interface{}) node {
+	l := &leaf{value: value}
+	kend := len(key)
+	kst := max(0, kend-len(l.path.key))
+	l.path.assign(key[kst:kend])
+	key = key[:kst]
+	var curr node = l
+	for len(key) > 0 {
+		n := &node4{}
+		kend := len(key)
+		n.addChildNode(key[kend-1], curr)
+		kend--
+		kst := max(0, kend-len(l.path.key))
+		n.path.assign(key[kst:kend])
+		key = key[:kst]
+		curr = n
 	}
+	return curr
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (l *leaf) header() nodeHeader {
@@ -21,21 +47,21 @@ func (l *leaf) header() nodeHeader {
 	}
 }
 
+func (l *leaf) keyPath() *keyPath {
+	return &l.path
+}
+
 func (l *leaf) grow() node {
 	// we need to promote this leaf to a node with a contained value
 	n := &node4{}
 	n.path = l.path
-	l.path = nil
+	l.path.assign(nil)
 	n.setNodeValue(l)
 	return n
 }
 
-func (l *leaf) trimPathStart(amount int) {
-	l.path = l.path[amount:]
-}
-
-func (l *leaf) prependPath(prefix []byte, k ...byte) {
-	l.path = joinSlices(prefix, k, l.path)
+func (l *leaf) shrink() node {
+	return l
 }
 
 func (l *leaf) canAddChild() bool {
@@ -66,7 +92,7 @@ func (l *leaf) removeValue() node {
 	return nil
 }
 
-func (l *leaf) removeChild(key byte) node {
+func (l *leaf) removeChild(key byte) {
 	panic("removeChild called on leaf")
 }
 
@@ -76,7 +102,7 @@ func (l *leaf) getChildNode(key []byte) *node {
 
 func (l *leaf) pretty(indent int, w writer) {
 	w.WriteString("[leaf")
-	writePath(l.path, w)
+	writePath(l.path.asSlice(), w)
 	fmt.Fprintf(w, "] value:%v\n", l.value)
 }
 

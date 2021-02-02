@@ -1,5 +1,6 @@
 package art
 
+// key value for keys that have no child node.
 const n48NoChildForKey byte = 255
 
 // index into the children arrays for the node value leaf.
@@ -33,6 +34,10 @@ func (n *node48) header() nodeHeader {
 	return n.nodeHeader
 }
 
+func (n *node48) keyPath() *keyPath {
+	return &n.path
+}
+
 func (n *node48) grow() node {
 	return newNode256(n)
 }
@@ -52,7 +57,7 @@ func (n *node48) addChildNode(key byte, child node) {
 }
 
 func (n *node48) canSetNodeValue() bool {
-	return n.childCount < 48
+	return n.childCount < int16(len(n.children))
 }
 
 func (n *node48) setNodeValue(v *leaf) {
@@ -94,7 +99,7 @@ func (n *node48) keyForSlot(slot byte) int {
 	panic("n48.keyForSlot called with unused slot number")
 }
 
-func (n *node48) removeChild(key byte) node {
+func (n *node48) removeChild(key byte) {
 	lastSlot := byte(n.childCount - 1)
 	keyOfLastSlot := n.keyForSlot(lastSlot)
 	slot := n.key[key]
@@ -103,6 +108,9 @@ func (n *node48) removeChild(key byte) node {
 	n.key[keyOfLastSlot] = slot
 	n.key[key] = n48NoChildForKey
 	n.childCount--
+}
+
+func (n *node48) shrink() node {
 	if n.childCount < 16*3/4 {
 		return newNode16(n)
 	}

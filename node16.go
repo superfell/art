@@ -34,6 +34,10 @@ func (n *node16) header() nodeHeader {
 	return n.nodeHeader
 }
 
+func (n *node16) keyPath() *keyPath {
+	return &n.path
+}
+
 func (n *node16) grow() node {
 	return newNode48(n)
 }
@@ -73,7 +77,7 @@ func (n *node16) findInsertionPoint(key byte) (idx int, exists bool) {
 	return 0, false
 }
 func (n *node16) canSetNodeValue() bool {
-	return n.childCount < 16
+	return int(n.childCount) < len(n.key)
 }
 
 func (n *node16) setNodeValue(v *leaf) {
@@ -103,7 +107,7 @@ func (n *node16) removeValue() node {
 	return n
 }
 
-func (n *node16) removeChild(k byte) node {
+func (n *node16) removeChild(k byte) {
 	// keep key ordered
 	idx, exists := n.findInsertionPoint(k)
 	if !exists {
@@ -114,6 +118,9 @@ func (n *node16) removeChild(k byte) node {
 	n.key[int(n.childCount)] = 0
 	n.children[int(n.childCount)] = nil
 	n.childCount--
+}
+
+func (n *node16) shrink() node {
 	if n.childCount <= 2 {
 		return newNode4(n)
 	}
