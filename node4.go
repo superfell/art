@@ -2,6 +2,9 @@ package art
 
 import "fmt"
 
+// index into the children arrays for the node value leaf.
+const n4ValueIdx = 3
+
 type node4 struct {
 	nodeHeader
 	key      [4]byte
@@ -27,63 +30,37 @@ func (n *node4) header() nodeHeader {
 	return n.nodeHeader
 }
 
-func (n *node4) insert(key []byte, value interface{}) node {
-	splitN, replaced, prefixLen := splitNodePath(key, n.path, n)
-	if replaced {
-		return splitN.insert(key, value)
-	}
-	key = key[prefixLen:]
-	if len(key) == 0 {
-		// we're trying to insert a value at this path, and this path
-		// is the prefix of some other path.
-		// if we already have a value, then just update it
-		if n.nodeHeader.hasValue {
-			n.children[n4ValueIdx].insert(key, value)
-			return n
-		}
-		if n.nodeHeader.childCount < 4 {
-			n.children[n4ValueIdx] = newNode(key, value)
-			n.nodeHeader.hasValue = true
-			return n
-		}
-		// we're full, need to grow
-		n16 := newNode16(n)
-		n16.children[n16ValueIdx] = newNode(key, value)
-		n16.hasValue = true
-		return n16
-	}
-	for i := int16(0); i < n.nodeHeader.childCount; i++ {
-		if n.key[i] == key[0] {
-			n.children[i] = n.children[i].insert(key[1:], value)
-			return n
-		}
-	}
-	maxChildren := len(n.children)
-	if n.hasValue {
-		maxChildren--
-	}
-	if int(n.childCount) < maxChildren {
-		idx := n.childCount
-		n.key[idx] = key[0]
-		n.children[idx] = newNode(key[1:], value)
-		n.nodeHeader.childCount++
-		return n
-	}
-	n16 := newNode16(n)
-	n16.addChildNode(key[0], newNode(key[1:], value))
-	return n16
+func (n *node4) grow() node {
+	return newNode16(n)
 }
 
-func (n *node4) nodeValue() (interface{}, bool) {
+func (n *node4) canAddChild() bool {
+	max := int16(len(n.key))
 	if n.hasValue {
-		return n.children[n4ValueIdx].nodeValue()
+		max--
 	}
-	return nil, false
+	return n.childCount < max
 }
 
-func (n *node4) valueNode() node {
+func (n *node4) addChildNode(key byte, child node) {
+	idx := n.childCount
+	n.key[idx] = key
+	n.children[idx] = child
+	n.nodeHeader.childCount++
+}
+
+func (n *node4) canSetNodeValue() bool {
+	return n.nodeHeader.childCount < 4
+}
+
+func (n *node4) setNodeValue(v *leaf) {
+	n.children[n4ValueIdx] = v
+	n.nodeHeader.hasValue = true
+}
+
+func (n *node4) valueNode() *leaf {
 	if n.hasValue {
-		return n.children[n4ValueIdx]
+		return n.children[n4ValueIdx].(*leaf)
 	}
 	return nil
 }
@@ -146,13 +123,13 @@ func (n *node4) removeChild(k byte) node {
 	return n
 }
 
-func (n *node4) getNextNode(key []byte) (next *node, remainingKey []byte) {
+func (n *node4) getChildNode(key []byte) *node {
 	for i := 0; i < int(n.childCount); i++ {
 		if key[0] == n.key[i] {
-			return &n.children[i], key[1:]
+			return &n.children[i]
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 func (n *node4) pretty(indent int, w writer) {

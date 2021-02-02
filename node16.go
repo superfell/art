@@ -4,17 +4,16 @@ import (
 	"fmt"
 )
 
+// index into the children arrays for the node value leaf.
+const n16ValueIdx = 15
+
 type node16 struct {
 	nodeHeader
 	key      [16]byte
 	children [16]node
 }
 
-func (n *node16) header() nodeHeader {
-	return n.nodeHeader
-}
-
-// constructs a new node16 from a node4.
+// constructs a new node16 from another node
 func newNode16(src node) *node16 {
 	n := node16{nodeHeader: src.header()}
 	if n.hasValue {
@@ -31,47 +30,20 @@ func newNode16(src node) *node16 {
 	return &n
 }
 
-func (n *node16) insert(key []byte, value interface{}) node {
-	splitN, replaced, prefixLen := splitNodePath(key, n.path, n)
-	if replaced {
-		return splitN.insert(key, value)
-	}
-	key = key[prefixLen:]
-	if len(key) == 0 {
-		// we're trying to insert a value at this path, and this path
-		// is the prefix of some other path.
-		// if we already have a value, then just update it
-		if n.nodeHeader.hasValue {
-			n.children[n16ValueIdx].insert(key, value)
-			return n
-		}
-		if n.nodeHeader.childCount < 16 {
-			n.children[n16ValueIdx] = newNode(key, value)
-			n.nodeHeader.hasValue = true
-			return n
-		}
-		// we're full, need to grow
-		n48 := newNode48(n)
-		n48.children[n48ValueIdx] = newNode(key, value)
-		n48.hasValue = true
-		return n48
-	}
-	next, remainingKey := n.getNextNode(key)
-	if next != nil {
-		*next = (*next).insert(remainingKey, value)
-		return n
-	}
-	maxChildren := int16(len(n.children))
+func (n *node16) header() nodeHeader {
+	return n.nodeHeader
+}
+
+func (n *node16) grow() node {
+	return newNode48(n)
+}
+
+func (n *node16) canAddChild() bool {
+	max := int16(len(n.key))
 	if n.hasValue {
-		maxChildren--
+		max--
 	}
-	if n.childCount < maxChildren {
-		n.addChildNode(key[0], newNode(key[1:], value))
-		return n
-	}
-	n48 := newNode48(n)
-	n48.addChildLeaf(key, value)
-	return n48
+	return n.childCount < max
 }
 
 func (n *node16) addChildNode(key byte, child node) {
@@ -100,17 +72,18 @@ func (n *node16) findInsertionPoint(key byte) (idx int, exists bool) {
 	}
 	return 0, false
 }
-
-func (n *node16) nodeValue() (interface{}, bool) {
-	if n.hasValue {
-		return n.children[n16ValueIdx].nodeValue()
-	}
-	return nil, false
+func (n *node16) canSetNodeValue() bool {
+	return n.childCount < 16
 }
 
-func (n *node16) valueNode() node {
+func (n *node16) setNodeValue(v *leaf) {
+	n.children[n16ValueIdx] = v
+	n.hasValue = true
+}
+
+func (n *node16) valueNode() *leaf {
 	if n.hasValue {
-		return n.children[n16ValueIdx]
+		return n.children[n16ValueIdx].(*leaf)
 	}
 	return nil
 }
@@ -147,17 +120,17 @@ func (n *node16) removeChild(k byte) node {
 	return n
 }
 
-func (n *node16) getNextNode(key []byte) (next *node, remainingKey []byte) {
+func (n *node16) getChildNode(key []byte) *node {
 	// see https://www.superfell.com/weblog/2021/01/it-depends-episode-1
 	// and https://www.superfell.com/weblog/2021/01/it-depends-episode-2
 	// for a detailed discussion around looping vs binary search
 	_ = n.key[n.childCount-1]
 	for i := n.childCount - 1; i >= 0; i-- {
 		if n.key[i] == key[0] {
-			return &n.children[i], key[1:]
+			return &n.children[i]
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 func (n *node16) pretty(indent int, w writer) {

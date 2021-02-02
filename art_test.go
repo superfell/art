@@ -31,6 +31,18 @@ func Test_JoinSlices(t *testing.T) {
 	test(k1, k5, []byte{22, 23}, []byte{15, 1, 2, 3, 4, 5, 22, 23})
 }
 
+func Test_WriteIndent(t *testing.T) {
+	for i := 2; i < 40; i++ {
+		t.Run(fmt.Sprintf("length %d", i), func(t *testing.T) {
+			w := strings.Builder{}
+			writeIndent(i, &w)
+			if len(w.String()) != i {
+				t.Errorf("writeIndent(%d) wrote an indent of length %d", i, len(w.String()))
+			}
+		})
+	}
+}
+
 func Test_Empty(t *testing.T) {
 	testArt(t, []keyVal{}, &Stats{})
 }
