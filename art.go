@@ -24,8 +24,7 @@ func (a *Tree) put(n node, key []byte, value interface{}) node {
 	if n == nil {
 		return newLeaf(key, value)
 	}
-	n, _, prefixLen := splitNodePath(key, n)
-	key = key[prefixLen:]
+	key, n = splitNodePath(key, n)
 	if len(key) == 0 {
 		vn := n.valueNode()
 		if vn != nil {
@@ -250,9 +249,9 @@ const n48ValueIdx = 47
 // splitNodePath will if needed split the supplied node into 2 based on the
 // overlap of the key and the nodes compressed path. If the key and the path are the
 // same then there's no need to split and the node is returned unaltered.
-func splitNodePath(key []byte, n node) (out node, replaced bool, prefixLen int) {
+func splitNodePath(key []byte, n node) (remainingKey []byte, out node) {
 	path := n.header().path
-	prefixLen = prefixSize(key, path)
+	prefixLen := prefixSize(key, path)
 	if prefixLen < len(path) {
 		// need to split into 2
 		parent := &node4{}
@@ -262,9 +261,9 @@ func splitNodePath(key []byte, n node) (out node, replaced bool, prefixLen int) 
 		parent.children[0] = n
 		// +1 because we consumed a byte for the child key
 		n.trimPathStart(prefixLen + 1)
-		return parent, true, prefixLen
+		return key[prefixLen:], parent
 	}
-	return n, false, prefixLen
+	return key[prefixLen:], n
 }
 
 func writePath(p []byte, w writer) {
