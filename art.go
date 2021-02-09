@@ -147,6 +147,46 @@ func (a *Tree) walk(n node, prefix []byte, callback ConsumerFn) WalkState {
 	})
 }
 
+// WalkRange will call the provided callback function with each key/value pair, in key order.
+// keys will be limited to those equal to or greater than start and less than end. So its inclusive
+// of start, and exclusive of send.
+// nil can used to mean no limit in that direction. e.g. WalkRange(nil,nil,cb) is the same as
+// WalkRange(cb). WalkRange([]byte{1}, nil, cb) will wall all that are equal to or greater than [1]
+// WalkRange([]byte{1}, []byte{2},cb) will walk all keys with a prefix of [1].
+// The callback return value can be used to continue or stop the walk
+func (a *Tree) WalkRange(start []byte, end []byte, callback ConsumerFn) {
+	if a.root == nil {
+		return
+	}
+	a.walkStart(a.root, start, end, make([]byte, 0, 32), false, callback)
+}
+
+func (a *Tree) walkStart(n node, start, end, current []byte, started bool, callback ConsumerFn) WalkState {
+	h := n.header()
+	current = append(current, h.path.asSlice()...)
+	started = started || bytes.Compare(current, start) >= 0
+	if len(end) > 0 && bytes.Compare(current, end) >= 0 {
+		return Stop
+	}
+	if started && h.hasValue {
+		leaf := n.valueNode()
+		if callback(current, leaf.value) == Stop {
+			return Stop
+		}
+	}
+
+	minK := byte(0)
+	if !started && len(current) < len(start) {
+		minK = start[len(current)]
+	}
+	return n.iterateChildren(func(k byte, cn node) WalkState {
+		if k >= minK {
+			return a.walkStart(cn, start, end, append(current, k), started, callback)
+		}
+		return Continue
+	})
+}
+
 // PrettyPrint will generate a compact representation of the state of the tree. Its primary
 // use is in diagnostics, or helping to understand how the tree is constructed.
 func (a *Tree) PrettyPrint(w io.Writer) {
