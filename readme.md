@@ -45,8 +45,6 @@ child iteration simpler and faster.
 https://www.superfell.com/weblog/2021/01/it-depends-episode-1 and https://www.superfell.com/weblog/2021/01/it-depends-episode-2 have
 a detailed deep dive into the best way to search the keys for node16.
 
-Range scans (other than the entire tree) are not yet implemented.
-
 During delete nodes will be shrunk once they contain less then 75% entries than the next smallest size can support. e.g. a node256 will
 shrink to a node48 once the node256 only has 36 children. This should help reduce grow/shrink/grow around the node size boundaries.
 
