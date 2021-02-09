@@ -158,44 +158,88 @@ func (a *Tree) WalkRange(start []byte, end []byte, callback ConsumerFn) {
 	if a.root == nil {
 		return
 	}
-	a.walkStart(a.root, start, end, make([]byte, 0, 32), 0, 0, callback)
+
+	cmpEnd := keyLimit{end, 0}
+	if len(end) == 0 {
+		cmpEnd = keyLimit{end, -1}
+	}
+	a.walkStart(a.root, make([]byte, 0, 32), keyLimit{start, 0}, cmpEnd, callback)
 }
 
-func (a *Tree) walkStart(n node, start, end, current []byte, cmpStart, cmpEnd int, callback ConsumerFn) WalkState {
+func (a *Tree) walkStart(n node, current []byte, start, end keyLimit, callback ConsumerFn) WalkState {
 	h := n.header()
-	if cmpEnd == 0 {
-		cmpEnd = bytes.Compare(h.path.asSlice(), end[:h.path.len])
-		end = end[h.path.len:]
+	for _, k := range h.path.asSlice() {
+		start.cmpSegment(k)
+		end.cmpSegment(k)
 	}
-	if cmpEnd >= 0 {
+	if end.eqOrGreaterThan() {
 		return Stop
 	}
-	if cmpStart == 0 {
-		cmpStart = bytes.Compare(h.path.asSlice(), start[:h.path.len])
-		start = start[h.path.len:]
-	}
 	current = append(current, h.path.asSlice()...)
-	if cmpStart >= 0 && h.hasValue {
+	if start.eqOrGreaterThan() && h.hasValue {
 		leaf := n.valueNode()
 		if callback(current, leaf.value) == Stop {
 			return Stop
 		}
 	}
 
-	minK := byte(0)
-	maxK := byte(255)
-	if len(start) > 0 {
-		minK = start[0]
-	}
-	if len(end) > 0 {
-		maxK = end[0]
-	}
+	minK := start.minNextKey()
+	maxK := end.maxNextKey()
+
 	return n.iterateChildren(func(k byte, cn node) WalkState {
 		if k >= minK && k <= maxK {
-			return a.walkStart(cn, start, end, append(current, k), cmpStart, cmpEnd, callback)
+			nextStart, nextEnd := start, end
+			nextStart.cmpSegment(k)
+			nextEnd.cmpSegment(k)
+			return a.walkStart(cn, append(current, k), nextStart, nextEnd, callback)
 		}
 		return Continue
 	})
+}
+
+type keyLimit struct {
+	path []byte
+	cmp  int
+}
+
+// eqOrGreaterThan will return true if the current key is greater than or equal to the limit key
+func (l *keyLimit) eqOrGreaterThan() bool {
+	return l.cmp > 0 || (l.cmp == 0 && len(l.path) == 0)
+}
+
+func (l *keyLimit) minNextKey() byte {
+	if len(l.path) > 0 && l.cmp == 0 {
+		return l.path[0]
+	}
+	return 0
+}
+func (l *keyLimit) maxNextKey() byte {
+	if len(l.path) > 0 && l.cmp == 0 {
+		return l.path[0]
+	}
+	return 255
+}
+
+// cmpSegment will update our state based on the provided segment of the key path.
+func (l *keyLimit) cmpSegment(k byte) {
+	if l.cmp != 0 {
+		return
+	}
+	if len(l.path) > 0 {
+		l.cmp = compare(k, l.path[0])
+		l.path = l.path[1:]
+	} else {
+		l.cmp = 1
+	}
+}
+
+func compare(a, b byte) int {
+	if a < b {
+		return -1
+	} else if a > b {
+		return 1
+	}
+	return 0
 }
 
 // PrettyPrint will generate a compact representation of the state of the tree. Its primary

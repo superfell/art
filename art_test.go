@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -321,13 +320,12 @@ func Test_MoreWalk(t *testing.T) {
 	}
 }
 
-type rangeTest struct {
+type keyRange struct {
 	start []byte
 	end   []byte
-	exp   []keyVal
 }
 
-func (r *rangeTest) String() string {
+func (r *keyRange) String() string {
 	b := strings.Builder{}
 	if len(r.start) > 0 {
 		fmt.Fprintf(&b, "0x%0X", r.start)
@@ -339,41 +337,54 @@ func (r *rangeTest) String() string {
 	return b.String()
 }
 
+func Test_WalkRangeCompressedPath(t *testing.T) {
+	a := new(Tree)
+	s := kvStore{}
+	keyVals := []keyVal{
+		kv([]byte{2, 3, 4}, "1"),
+		kv([]byte{2, 3, 4, 5, 6, 7, 8}, "2"),
+		kv([]byte{2, 3, 4, 5, 6, 7, 9}, "3"),
+	}
+	for _, kv := range keyVals {
+		a.Put(kv.key, kv.val)
+		s.put(kv)
+	}
+	testWalkRange(t, a, &s, nil, nil)
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 5}, nil)
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 6}, nil)
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 7}, nil)
+	testWalkRange(t, a, &s, []byte{2}, []byte{3})
+	testWalkRange(t, a, &s, []byte{2, 3, 4}, []byte{2, 3, 4, 5, 6, 7, 9})
+	testWalkRange(t, a, &s, []byte{2, 3, 4}, []byte{2, 3, 4, 5, 6, 7, 10})
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 5}, []byte{2, 3, 4, 5, 6})
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 6}, []byte{2, 3, 4, 5, 7})
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 7}, []byte{2, 3, 4, 5, 6, 7, 9, 1, 2})
+	testWalkRange(t, a, &s, rndKey(), rndKey())
+}
+
 func Test_WalkRange(t *testing.T) {
 	a := new(Tree)
-	inserts := []keyVal{}
+	s := kvStore{}
 	for i := 1; i < 5; i++ {
 		for j := 1; j < 5; j++ {
 			e := kv([]byte{byte(i * 2), byte(1 + j*2), byte(2 + j*3)}, i*j*j)
-			inserts = append(inserts, e)
 			a.Put(e.key, e.val)
+			s.put(e)
 		}
 	}
-	a.PrettyPrint(os.Stdout)
-	cases := []rangeTest{
-		{[]byte{6}, []byte{8, 5, 8}, inserts[8:13]},
-		{[]byte{5}, []byte{8, 5, 8}, inserts[8:13]},
-		{[]byte{6}, []byte{8, 5, 9}, inserts[8:14]},
-		{[]byte{4}, []byte{5}, inserts[4:8]},
-		{[]byte{4}, []byte{6}, inserts[4:8]},
-		{[]byte{3}, []byte{6}, inserts[4:8]},
-		{nil, []byte{6}, inserts[:8]},
-		{[]byte{3}, nil, inserts[4:]},
-		{[]byte{4, 3, 5, 1}, []byte{6, 3, 5, 1}, inserts[5:9]},
+	cases := []keyRange{
+		{[]byte{6}, []byte{8, 5, 8}},
+		{[]byte{5}, []byte{8, 5, 8}},
+		{[]byte{6}, []byte{8, 5, 9}},
+		{[]byte{4}, []byte{5}},
+		{[]byte{4}, []byte{6}},
+		{[]byte{3}, []byte{6}},
+		{nil, []byte{6}},
+		{[]byte{3}, nil},
+		{[]byte{4, 3, 5, 1}, []byte{6, 3, 5, 1}},
 	}
 	for _, tc := range cases {
-		t.Run(tc.String(), func(t *testing.T) {
-			seen := []keyVal{}
-			a.WalkRange(tc.start, tc.end, func(k []byte, v interface{}) WalkState {
-				seen = append(seen, keyVal{key: append([]byte(nil), k...), val: v})
-				return Continue
-			})
-			exp := kvList(tc.exp)
-			act := kvList(seen)
-			if exp != act {
-				t.Errorf("Expecting entries\n%s but got\n%s", exp, act)
-			}
-		})
+		testWalkRange(t, a, &s, tc.start, tc.end)
 	}
 }
 
@@ -469,28 +480,34 @@ func testArtOne(t *testing.T, inserts []keyVal, deleteOrderer func([]keyVal) []k
 }
 
 func testWalkRange(t *testing.T, a *Tree, s *kvStore, start, end []byte) {
-	exp := s.orderedRange(start, end)
-	idx := 0
-	a.WalkRange(start, end, func(k []byte, v interface{}) WalkState {
-		if idx >= len(exp) {
-			t.Errorf("received more keys than expecting, current key is %v :%v", k, v)
-		} else {
-			if bytes.Compare(k, exp[idx].key) != 0 {
-				t.Errorf("key %d expecting %v but got %v", idx, exp[idx].key, k)
+	kr := keyRange{start, end}
+	t.Run(kr.String(), func(t *testing.T) {
+		exp := s.orderedRange(start, end)
+		idx := 0
+		a.WalkRange(start, end, func(k []byte, v interface{}) WalkState {
+			if len(exp) == 0 {
+				t.Errorf("received more keys than expecting, additional key/val is %v : %v", k, v)
+			} else {
+				bc := bytes.Compare(k, exp[0].key)
+				if bc != 0 {
+					t.Errorf("key %d expecting %v but got %v", idx, exp[0].key, k)
+				} else if v != exp[0].val {
+					t.Errorf("key %v expecting value %v but got %v", k, exp[0].val, v)
+				}
+				if bc >= 0 {
+					exp = exp[1:]
+				}
 			}
-			if v != exp[idx].val {
-				t.Errorf("key %v expecting value %v but got %v", k, exp[idx].val, v)
-			}
+			idx++
+			return Continue
+		})
+		if len(exp) != 0 {
+			t.Errorf("received %d less keys than expected, missing kvs are\n%v", len(exp), kvList(exp))
 		}
-		idx++
-		return Continue
+		if t.Failed() {
+			t.Logf("Tree is \n%v", pretty(a))
+		}
 	})
-	if idx != len(exp) {
-		t.Errorf("unexpected number of keys walked, got %d, expecting %d", idx, len(exp))
-	}
-	if t.Failed() {
-		t.Logf("failed during walkRange %v-%v", start, end)
-	}
 }
 
 func addBytes(v []byte, add byte) []byte {
