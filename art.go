@@ -158,17 +158,24 @@ func (a *Tree) WalkRange(start []byte, end []byte, callback ConsumerFn) {
 	if a.root == nil {
 		return
 	}
-	a.walkStart(a.root, start, end, make([]byte, 0, 32), false, callback)
+	a.walkStart(a.root, start, end, make([]byte, 0, 32), 0, 0, callback)
 }
 
-func (a *Tree) walkStart(n node, start, end, current []byte, started bool, callback ConsumerFn) WalkState {
+func (a *Tree) walkStart(n node, start, end, current []byte, cmpStart, cmpEnd int, callback ConsumerFn) WalkState {
 	h := n.header()
-	current = append(current, h.path.asSlice()...)
-	started = started || bytes.Compare(current, start) >= 0
-	if len(end) > 0 && bytes.Compare(current, end) >= 0 {
+	if cmpEnd == 0 {
+		cmpEnd = bytes.Compare(h.path.asSlice(), end[:h.path.len])
+		end = end[h.path.len:]
+	}
+	if cmpEnd >= 0 {
 		return Stop
 	}
-	if started && h.hasValue {
+	if cmpStart == 0 {
+		cmpStart = bytes.Compare(h.path.asSlice(), start[:h.path.len])
+		start = start[h.path.len:]
+	}
+	current = append(current, h.path.asSlice()...)
+	if cmpStart >= 0 && h.hasValue {
 		leaf := n.valueNode()
 		if callback(current, leaf.value) == Stop {
 			return Stop
@@ -176,12 +183,16 @@ func (a *Tree) walkStart(n node, start, end, current []byte, started bool, callb
 	}
 
 	minK := byte(0)
-	if !started && len(current) < len(start) {
-		minK = start[len(current)]
+	maxK := byte(255)
+	if len(start) > 0 {
+		minK = start[0]
+	}
+	if len(end) > 0 {
+		maxK = end[0]
 	}
 	return n.iterateChildren(func(k byte, cn node) WalkState {
-		if k >= minK {
-			return a.walkStart(cn, start, end, append(current, k), started, callback)
+		if k >= minK && k <= maxK {
+			return a.walkStart(cn, start, end, append(current, k), cmpStart, cmpEnd, callback)
 		}
 		return Continue
 	})
