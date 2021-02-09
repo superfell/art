@@ -87,6 +87,16 @@ func (n *node4) iterateChildren(cb nodeConsumer) WalkState {
 	return Continue
 }
 
+func (n *node4) iterateChildrenRange(start, end int, cb nodeConsumer) WalkState {
+	// TODO, store key sorted.
+	return n.iterateChildren(func(k byte, n node) WalkState {
+		if int(k) >= start && int(k) < end {
+			return cb(k, n)
+		}
+		return Continue
+	})
+}
+
 func (n *node4) removeValue() node {
 	n.children[n4ValueIdx] = nil
 	n.hasValue = false

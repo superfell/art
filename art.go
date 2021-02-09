@@ -158,7 +158,6 @@ func (a *Tree) WalkRange(start []byte, end []byte, callback ConsumerFn) {
 	if a.root == nil {
 		return
 	}
-
 	cmpEnd := keyLimit{end, 0}
 	if len(end) == 0 {
 		cmpEnd = keyLimit{end, -1}
@@ -182,18 +181,11 @@ func (a *Tree) walkStart(n node, current []byte, start, end keyLimit, callback C
 			return Stop
 		}
 	}
-
-	minK := start.minNextKey()
-	maxK := end.maxNextKey()
-
-	return n.iterateChildren(func(k byte, cn node) WalkState {
-		if k >= minK && k <= maxK {
-			nextStart, nextEnd := start, end
-			nextStart.cmpSegment(k)
-			nextEnd.cmpSegment(k)
-			return a.walkStart(cn, append(current, k), nextStart, nextEnd, callback)
-		}
-		return Continue
+	return n.iterateChildrenRange(start.minNextKey(), end.stopKey(), func(k byte, cn node) WalkState {
+		nextStart, nextEnd := start, end
+		nextStart.cmpSegment(k)
+		nextEnd.cmpSegment(k)
+		return a.walkStart(cn, append(current, k), nextStart, nextEnd, callback)
 	})
 }
 
@@ -207,17 +199,17 @@ func (l *keyLimit) eqOrGreaterThan() bool {
 	return l.cmp > 0 || (l.cmp == 0 && len(l.path) == 0)
 }
 
-func (l *keyLimit) minNextKey() byte {
+func (l *keyLimit) minNextKey() int {
 	if len(l.path) > 0 && l.cmp == 0 {
-		return l.path[0]
+		return int(l.path[0])
 	}
 	return 0
 }
-func (l *keyLimit) maxNextKey() byte {
+func (l *keyLimit) stopKey() int {
 	if len(l.path) > 0 && l.cmp == 0 {
-		return l.path[0]
+		return int(l.path[0]) + 1
 	}
-	return 255
+	return 256
 }
 
 // cmpSegment will update our state based on the provided segment of the key path.
@@ -289,6 +281,8 @@ type node interface {
 	addChildNode(key byte, child node)
 	getChildNode(key []byte) *node
 	iterateChildren(cb nodeConsumer) WalkState
+	// iterateChildrenRange a potential subset of children where start >= key < end
+	iterateChildrenRange(start, end int, cb nodeConsumer) WalkState
 
 	canSetNodeValue() bool
 	setNodeValue(n *leaf)

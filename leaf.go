@@ -88,6 +88,10 @@ func (l *leaf) iterateChildren(cb nodeConsumer) WalkState {
 	return Continue
 }
 
+func (l *leaf) iterateChildrenRange(start, end int, cb nodeConsumer) WalkState {
+	return Continue
+}
+
 func (l *leaf) removeValue() node {
 	return nil
 }

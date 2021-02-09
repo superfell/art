@@ -73,7 +73,12 @@ func (n *node48) valueNode() *leaf {
 }
 
 func (n *node48) iterateChildren(cb nodeConsumer) WalkState {
-	for k, slot := range n.key {
+	return n.iterateChildrenRange(0, 256, cb)
+}
+
+func (n *node48) iterateChildrenRange(start, end int, cb nodeConsumer) WalkState {
+	for k := start; k < end; k++ {
+		slot := n.key[k]
 		if slot != n48NoChildForKey {
 			if cb(byte(k), n.children[slot]) == Stop {
 				return Stop
