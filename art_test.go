@@ -320,6 +320,74 @@ func Test_MoreWalk(t *testing.T) {
 	}
 }
 
+type keyRange struct {
+	start []byte
+	end   []byte
+}
+
+func (r *keyRange) String() string {
+	b := strings.Builder{}
+	if len(r.start) > 0 {
+		fmt.Fprintf(&b, "0x%0X", r.start)
+	}
+	b.WriteByte('-')
+	if len(r.end) > 0 {
+		fmt.Fprintf(&b, "0x%0X", r.end)
+	}
+	return b.String()
+}
+
+func Test_WalkRangeCompressedPath(t *testing.T) {
+	a := new(Tree)
+	s := kvStore{}
+	keyVals := []keyVal{
+		kv([]byte{2, 3, 4}, "1"),
+		kv([]byte{2, 3, 4, 5, 6, 7, 8}, "2"),
+		kv([]byte{2, 3, 4, 5, 6, 7, 9}, "3"),
+	}
+	for _, kv := range keyVals {
+		a.Put(kv.key, kv.val)
+		s.put(kv)
+	}
+	testWalkRange(t, a, &s, nil, nil)
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 5}, nil)
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 6}, nil)
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 7}, nil)
+	testWalkRange(t, a, &s, []byte{2}, []byte{3})
+	testWalkRange(t, a, &s, []byte{2, 3, 4}, []byte{2, 3, 4, 5, 6, 7, 9})
+	testWalkRange(t, a, &s, []byte{2, 3, 4}, []byte{2, 3, 4, 5, 6, 7, 10})
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 5}, []byte{2, 3, 4, 5, 6})
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 6}, []byte{2, 3, 4, 5, 7})
+	testWalkRange(t, a, &s, []byte{2, 3, 4, 5, 7}, []byte{2, 3, 4, 5, 6, 7, 9, 1, 2})
+	testWalkRange(t, a, &s, rndKey(), rndKey())
+}
+
+func Test_WalkRange(t *testing.T) {
+	a := new(Tree)
+	s := kvStore{}
+	for i := 1; i < 5; i++ {
+		for j := 1; j < 5; j++ {
+			e := kv([]byte{byte(i * 2), byte(1 + j*2), byte(2 + j*3)}, i*j*j)
+			a.Put(e.key, e.val)
+			s.put(e)
+		}
+	}
+	cases := []keyRange{
+		{[]byte{6}, []byte{8, 5, 8}},
+		{[]byte{5}, []byte{8, 5, 8}},
+		{[]byte{6}, []byte{8, 5, 9}},
+		{[]byte{4}, []byte{5}},
+		{[]byte{4}, []byte{6}},
+		{[]byte{3}, []byte{6}},
+		{nil, []byte{6}},
+		{[]byte{3}, nil},
+		{[]byte{4, 3, 5, 1}, []byte{6, 3, 5, 1}},
+	}
+	for _, tc := range cases {
+		testWalkRange(t, a, &s, tc.start, tc.end)
+	}
+}
+
 func testArt(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 	deleters := []func([]keyVal) []keyVal{randDeleteOrder, deleteLongestFirst, deleteShortestFirst}
 	names := []string{"random", "longest to shortest", "shortest to longest"}
@@ -357,7 +425,21 @@ func testArtOne(t *testing.T, inserts []keyVal, deleteOrderer func([]keyVal) []k
 			t.FailNow() // no point to keep going
 		}
 	}
+	orderd := store.ordered()
 	hasKeyVals(t, a, store.ordered())
+	testWalkRange(t, a, &store, nil, nil)
+	if len(orderd) > 0 {
+		testWalkRange(t, a, &store, orderd[rnd.Intn(len(orderd))].key, nil)
+		testWalkRange(t, a, &store, nil, orderd[rnd.Intn(len(orderd))].key)
+		rStart := orderd[rnd.Intn(len(orderd))].key
+		rEnd := orderd[rnd.Intn(len(orderd))].key
+		if bytes.Compare(rStart, rEnd) > 0 {
+			rStart, rEnd = rEnd, rStart
+		}
+		testWalkRange(t, a, &store, rStart, rEnd)
+		testWalkRange(t, a, &store, rStart[:len(rStart)/2], rEnd[:len(rEnd)/2])
+		testWalkRange(t, a, &store, addBytes(rStart, 0x05), addBytes(rEnd, 0x10))
+	}
 
 	for i := 0; i < len(inserts)*2+4; i++ {
 		k := rndKey()
@@ -395,6 +477,51 @@ func testArtOne(t *testing.T, inserts []keyVal, deleteOrderer func([]keyVal) []k
 			t.FailNow() // no point to keep going
 		}
 	}
+}
+
+func testWalkRange(t *testing.T, a *Tree, s *kvStore, start, end []byte) {
+	kr := keyRange{start, end}
+	t.Run(kr.String(), func(t *testing.T) {
+		exp := s.orderedRange(start, end)
+		idx := 0
+		a.WalkRange(start, end, func(k []byte, v interface{}) WalkState {
+			if len(exp) == 0 {
+				t.Errorf("received more keys than expecting, additional key/val is %v : %v", k, v)
+			} else {
+				bc := bytes.Compare(k, exp[0].key)
+				if bc != 0 {
+					t.Errorf("key %d expecting %v but got %v", idx, exp[0].key, k)
+				} else if v != exp[0].val {
+					t.Errorf("key %v expecting value %v but got %v", k, exp[0].val, v)
+				}
+				if bc >= 0 {
+					exp = exp[1:]
+				}
+			}
+			idx++
+			return Continue
+		})
+		if len(exp) != 0 {
+			t.Errorf("received %d less keys than expected, missing kvs are\n%v", len(exp), kvList(exp))
+		}
+		if t.Failed() {
+			t.Logf("Tree is \n%v", pretty(a))
+		}
+	})
+}
+
+func addBytes(v []byte, add byte) []byte {
+	res := append([]byte(nil), v...)
+	idx := len(res) - 1
+	for idx >= 0 {
+		l := res[idx]
+		n := l + add
+		res[idx] = n
+		if n > l {
+			return res
+		}
+	}
+	return append([]byte{1}, res...)
 }
 
 func randDeleteOrder(i []keyVal) []keyVal {
@@ -541,6 +668,19 @@ func (s *kvStore) ordered() []keyVal {
 		return bytes.Compare(s.kvs[i].key, s.kvs[j].key) == -1
 	})
 	return s.kvs
+}
+
+// orderedRange returns the keyVals that are between the supplied start,end
+// values, using the same semantics as WalkRange.
+func (s *kvStore) orderedRange(start, end []byte) []keyVal {
+	sorted := s.ordered()
+	rng := make([]keyVal, 0, 10)
+	for _, kv := range sorted {
+		if (len(start) == 0 || bytes.Compare(kv.key, start) >= 0) && (len(end) == 0 || bytes.Compare(kv.key, end) == -1) {
+			rng = append(rng, kv)
+		}
+	}
+	return rng
 }
 
 func pretty(a *Tree) string {

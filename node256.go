@@ -54,9 +54,14 @@ func (n *node256) valueNode() *leaf {
 }
 
 func (n *node256) iterateChildren(cb nodeConsumer) WalkState {
-	for k, n := range n.children {
-		if n != nil {
-			if cb(byte(k), n) == Stop {
+	return n.iterateChildrenRange(0, 256, cb)
+}
+
+func (n *node256) iterateChildrenRange(start, end int, cb nodeConsumer) WalkState {
+	for k := start; k < end; k++ {
+		c := n.children[k]
+		if c != nil {
+			if cb(byte(k), c) == Stop {
 				return Stop
 			}
 		}

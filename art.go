@@ -147,6 +147,93 @@ func (a *Tree) walk(n node, prefix []byte, callback ConsumerFn) WalkState {
 	})
 }
 
+// WalkRange will call the provided callback function with each key/value pair, in key order.
+// keys will be limited to those equal to or greater than start and less than end. So its inclusive
+// of start, and exclusive of send.
+// nil can used to mean no limit in that direction. e.g. WalkRange(nil,nil,cb) is the same as
+// WalkRange(cb). WalkRange([]byte{1}, nil, cb) will wall all that are equal to or greater than [1]
+// WalkRange([]byte{1}, []byte{2},cb) will walk all keys with a prefix of [1].
+// The callback return value can be used to continue or stop the walk
+func (a *Tree) WalkRange(start []byte, end []byte, callback ConsumerFn) {
+	if a.root == nil {
+		return
+	}
+	cmpEnd := keyLimit{end, 0}
+	if len(end) == 0 {
+		cmpEnd = keyLimit{end, -1}
+	}
+	a.walkStart(a.root, make([]byte, 0, 32), keyLimit{start, 0}, cmpEnd, callback)
+}
+
+func (a *Tree) walkStart(n node, current []byte, start, end keyLimit, callback ConsumerFn) WalkState {
+	h := n.header()
+	for _, k := range h.path.asSlice() {
+		start.cmpSegment(k)
+		end.cmpSegment(k)
+	}
+	if end.eqOrGreaterThan() {
+		return Stop
+	}
+	current = append(current, h.path.asSlice()...)
+	if start.eqOrGreaterThan() && h.hasValue {
+		leaf := n.valueNode()
+		if callback(current, leaf.value) == Stop {
+			return Stop
+		}
+	}
+	return n.iterateChildrenRange(start.minNextKey(), end.stopKey(), func(k byte, cn node) WalkState {
+		nextStart, nextEnd := start, end
+		nextStart.cmpSegment(k)
+		nextEnd.cmpSegment(k)
+		return a.walkStart(cn, append(current, k), nextStart, nextEnd, callback)
+	})
+}
+
+type keyLimit struct {
+	path []byte
+	cmp  int
+}
+
+// eqOrGreaterThan will return true if the current key is greater than or equal to the limit key
+func (l *keyLimit) eqOrGreaterThan() bool {
+	return l.cmp > 0 || (l.cmp == 0 && len(l.path) == 0)
+}
+
+func (l *keyLimit) minNextKey() int {
+	if len(l.path) > 0 && l.cmp == 0 {
+		return int(l.path[0])
+	}
+	return 0
+}
+func (l *keyLimit) stopKey() int {
+	if len(l.path) > 0 && l.cmp == 0 {
+		return int(l.path[0]) + 1
+	}
+	return 256
+}
+
+// cmpSegment will update our state based on the provided segment of the key path.
+func (l *keyLimit) cmpSegment(k byte) {
+	if l.cmp != 0 {
+		return
+	}
+	if len(l.path) > 0 {
+		l.cmp = compare(k, l.path[0])
+		l.path = l.path[1:]
+	} else {
+		l.cmp = 1
+	}
+}
+
+func compare(a, b byte) int {
+	if a < b {
+		return -1
+	} else if a > b {
+		return 1
+	}
+	return 0
+}
+
 // PrettyPrint will generate a compact representation of the state of the tree. Its primary
 // use is in diagnostics, or helping to understand how the tree is constructed.
 func (a *Tree) PrettyPrint(w io.Writer) {
@@ -194,6 +281,8 @@ type node interface {
 	addChildNode(key byte, child node)
 	getChildNode(key []byte) *node
 	iterateChildren(cb nodeConsumer) WalkState
+	// iterateChildrenRange a potential subset of children where start >= key < end
+	iterateChildrenRange(start, end int, cb nodeConsumer) WalkState
 
 	canSetNodeValue() bool
 	setNodeValue(n *leaf)

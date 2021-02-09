@@ -101,6 +101,22 @@ func (n *node16) iterateChildren(cb nodeConsumer) WalkState {
 	return Continue
 }
 
+func (n *node16) iterateChildrenRange(start, end int, cb nodeConsumer) WalkState {
+	for i := 0; i < int(n.childCount); i++ {
+		k := int(n.key[i])
+		if k < start {
+			continue
+		}
+		if k >= end {
+			return Continue
+		}
+		if cb(n.key[i], n.children[i]) == Stop {
+			return Stop
+		}
+	}
+	return Continue
+}
+
 func (n *node16) removeValue() node {
 	n.children[n16ValueIdx] = nil
 	n.hasValue = false
