@@ -3,19 +3,19 @@ package art
 // index into the children arrays for the node value leaf.
 const n4ValueIdx = 3
 
-type node4 struct {
+type node4[V any] struct {
 	nodeHeader
 	key      [4]byte
-	children [4]node
+	children [4]node[V]
 }
 
-func newNode4(src node) *node4 {
-	n := node4{nodeHeader: src.header()}
+func newNode4[V any](src node[V]) *node4[V] {
+	n := node4[V]{nodeHeader: src.header()}
 	if n.hasValue {
 		n.children[n4ValueIdx] = src.valueNode()
 	}
 	slot := 0
-	src.iterateChildren(func(k byte, cn node) WalkState {
+	src.iterateChildren(func(k byte, cn node[V]) WalkState {
 		n.key[slot] = k
 		n.children[slot] = cn
 		slot++
@@ -24,19 +24,19 @@ func newNode4(src node) *node4 {
 	return &n
 }
 
-func (n *node4) header() nodeHeader {
+func (n *node4[V]) header() nodeHeader {
 	return n.nodeHeader
 }
 
-func (n *node4) keyPath() *keyPath {
+func (n *node4[V]) keyPath() *keyPath {
 	return &n.path
 }
 
-func (n *node4) grow() node {
-	return newNode16(n)
+func (n *node4[V]) grow() node[V] {
+	return newNode16[V](n)
 }
 
-func (n *node4) canAddChild() bool {
+func (n *node4[V]) canAddChild() bool {
 	max := int16(len(n.key))
 	if n.hasValue {
 		max--
@@ -44,30 +44,30 @@ func (n *node4) canAddChild() bool {
 	return n.childCount < max
 }
 
-func (n *node4) addChildNode(key byte, child node) {
+func (n *node4[V]) addChildNode(key byte, child node[V]) {
 	idx := n.childCount
 	n.key[idx] = key
 	n.children[idx] = child
 	n.nodeHeader.childCount++
 }
 
-func (n *node4) canSetNodeValue() bool {
+func (n *node4[V]) canSetNodeValue() bool {
 	return int(n.nodeHeader.childCount) < len(n.key)
 }
 
-func (n *node4) setNodeValue(v *leaf) {
+func (n *node4[V]) setNodeValue(v *leaf[V]) {
 	n.children[n4ValueIdx] = v
 	n.nodeHeader.hasValue = true
 }
 
-func (n *node4) valueNode() *leaf {
+func (n *node4[V]) valueNode() *leaf[V] {
 	if n.hasValue {
-		return n.children[n4ValueIdx].(*leaf)
+		return n.children[n4ValueIdx].(*leaf[V])
 	}
 	return nil
 }
 
-func (n *node4) iterateChildren(cb nodeConsumer) WalkState {
+func (n *node4[V]) iterateChildren(cb func(k byte, n node[V]) WalkState) WalkState {
 	done := byte(0)
 	for i := byte(0); i < byte(n.childCount); i++ {
 		next := byte(255)
@@ -87,9 +87,9 @@ func (n *node4) iterateChildren(cb nodeConsumer) WalkState {
 	return Continue
 }
 
-func (n *node4) iterateChildrenRange(start, end int, cb nodeConsumer) WalkState {
+func (n *node4[V]) iterateChildrenRange(start, end int, cb func(k byte, n node[V]) WalkState) WalkState {
 	// TODO, store key sorted.
-	return n.iterateChildren(func(k byte, n node) WalkState {
+	return n.iterateChildren(func(k byte, n node[V]) WalkState {
 		if int(k) >= start && int(k) < end {
 			return cb(k, n)
 		}
@@ -97,13 +97,13 @@ func (n *node4) iterateChildrenRange(start, end int, cb nodeConsumer) WalkState 
 	})
 }
 
-func (n *node4) removeValue() node {
+func (n *node4[V]) removeValue() node[V] {
 	n.children[n4ValueIdx] = nil
 	n.hasValue = false
 	return n.shrink()
 }
 
-func (n *node4) shrink() node {
+func (n *node4[V]) shrink() node[V] {
 	if n.childCount == 1 && !n.hasValue {
 		// when we're down to 1 child, we can add our path and the child's key to the start of its path
 		// and return that instead
@@ -131,7 +131,7 @@ func (n *node4) shrink() node {
 	return n
 }
 
-func (n *node4) removeChild(k byte) {
+func (n *node4[V]) removeChild(k byte) {
 	lastIdx := n.childCount - 1
 	for i := 0; i < int(n.childCount); i++ {
 		if k == n.key[i] {
@@ -145,7 +145,7 @@ func (n *node4) removeChild(k byte) {
 	}
 }
 
-func (n *node4) getChildNode(key []byte) *node {
+func (n *node4[V]) getChildNode(key []byte) *node[V] {
 	for i := 0; i < int(n.childCount); i++ {
 		if key[0] == n.key[i] {
 			return &n.children[i]
@@ -154,11 +154,11 @@ func (n *node4) getChildNode(key []byte) *node {
 	return nil
 }
 
-func (n *node4) pretty(indent int, w writer) {
-	writeNode(n, "n4", indent, w)
+func (n *node4[V]) pretty(indent int, w writer) {
+	writeNode[V](n, "n4", indent, w)
 }
 
-func (n *node4) stats(s *Stats) {
+func (n *node4[V]) stats(s *Stats) {
 	s.Node4s++
 	if n.hasValue {
 		n.children[n4ValueIdx].stats(s)
