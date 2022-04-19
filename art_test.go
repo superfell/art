@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -23,11 +24,11 @@ func Test_WriteIndent(t *testing.T) {
 }
 
 func Test_Empty(t *testing.T) {
-	testArt(t, []keyVal{}, &Stats{})
+	testArt(t, []keyVal[string]{}, &Stats{})
 }
 
 func Test_OverwriteWithSameKey(t *testing.T) {
-	testArt(t, []keyVal{
+	testArt(t, []keyVal[string]{
 		kvs("one", "one"),
 		kvs("two", "two"),
 		kvs("one", "three"),
@@ -35,7 +36,7 @@ func Test_OverwriteWithSameKey(t *testing.T) {
 }
 
 func Test_InsertOnLeaf(t *testing.T) {
-	testArt(t, []keyVal{
+	testArt(t, []keyVal[string]{
 		kvs("123", "abc"),
 		// now insert something that would add a child to the leaf above
 		kvs("1234", "abcd"),
@@ -43,14 +44,14 @@ func Test_InsertOnLeaf(t *testing.T) {
 }
 
 func Test_LeafPathToNToLeafPath(t *testing.T) {
-	testArt(t, []keyVal{
+	testArt(t, []keyVal[string]{
 		kvs("123", "1"),
 		kvs("12345678", "2"),
 	}, &Stats{Node4s: 1, Keys: 2})
 }
 
 func Test_SimpleMultipleInserts(t *testing.T) {
-	testArt(t, []keyVal{
+	testArt(t, []keyVal[string]{
 		kvs("123", "abc"),
 		kvs("456", "abcd"),
 		kvs("1211", "def"),
@@ -73,7 +74,7 @@ func Test_GrowNode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
-			inserts := []keyVal{}
+			inserts := []keyVal[int]{}
 			for i := 0; i < tc.children; i++ {
 				inserts = append(inserts, kv([]byte{1, byte(i)}, i))
 			}
@@ -93,9 +94,9 @@ func Test_GrowNodeWithMixedChildren(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
-			inserts := []keyVal{}
+			inserts := []keyVal[string]{}
 			for i := 0; i < tc.children; i++ {
-				inserts = append(inserts, kv([]byte{1, byte(i)}, i))
+				inserts = append(inserts, kv([]byte{1, byte(i)}, strconv.Itoa(i)))
 			}
 			inserts = append(inserts, kv([]byte{1, 1, 10, 4}, "a"))
 			inserts = append(inserts, kv([]byte{1, 11, 10, 4}, "b"))
@@ -120,9 +121,9 @@ func Test_SetValueOnExistingNode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
-			inserts := []keyVal{}
+			inserts := []keyVal[string]{}
 			for i := 0; i < tc.children; i++ {
-				inserts = append(inserts, kv([]byte{1, byte(i)}, i))
+				inserts = append(inserts, kv([]byte{1, byte(i)}, strconv.Itoa(i)))
 			}
 			inserts = append(inserts, kv([]byte{1}, "value"))
 			testArt(t, inserts, tc.stats)
@@ -139,11 +140,11 @@ func Test_NodeInsertSplitsCompressedPath(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
-			inserts := []keyVal{}
+			inserts := []keyVal[int]{}
 			for i := 0; i < tc.children; i++ {
 				inserts = append(inserts, kv([]byte{1, 2, 3, 4, 5, 6, 7, byte(i + 10)}, i))
 			}
-			inserts = append(inserts, kv([]byte{1, 2, 3}, "123"))
+			inserts = append(inserts, kv([]byte{1, 2, 3}, 123))
 			testArt(t, inserts, tc.stats)
 		})
 	}
@@ -158,9 +159,9 @@ func Test_CompressedPathLargerThan24(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("c_%d", tc.children), func(t *testing.T) {
-			inserts := []keyVal{}
+			inserts := []keyVal[string]{}
 			for i := 0; i < tc.children; i++ {
-				inserts = append(inserts, kv([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 24, 25, 26, 27, 28, 29, 30, byte(i + 10)}, i))
+				inserts = append(inserts, kv([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 24, 25, 26, 27, 28, 29, 30, byte(i + 10)}, strconv.Itoa(i)))
 			}
 			inserts = append(inserts, kv([]byte{1, 2, 3}, "123"))
 			inserts = append(inserts, kv([]byte{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}, "234..."))
@@ -170,10 +171,10 @@ func Test_CompressedPathLargerThan24(t *testing.T) {
 }
 
 func Test_GrowWithPrefixValue(t *testing.T) {
-	keyVals := []keyVal{
-		kvs("BBB", "kk"),
-		kvs("B", "k"),
-		kvs("BBx", 100),
+	keyVals := []keyVal[int]{
+		kvs("BBB", 1010),
+		kvs("B", 505),
+		kvs("BBx", 5555),
 	}
 	for i := 0; i < 256; i++ {
 		keyVals = append(keyVals, kv([]byte{'B', byte(i)}, i))
@@ -183,7 +184,7 @@ func Test_GrowWithPrefixValue(t *testing.T) {
 
 func Test_KeyWithZeros(t *testing.T) {
 	// any arbitrary byte array should be a valid key, even those with embedded nulls.
-	testArt(t, []keyVal{
+	testArt(t, []keyVal[string]{
 		kv([]byte{0, 0, 0}, "k1"),
 		kv([]byte{0, 0, 0, 0}, "k2"),
 		kv([]byte{0, 0, 0, 1}, "k3"),
@@ -195,13 +196,13 @@ func Test_KeyWithZeros(t *testing.T) {
 func Test_EmptyKey(t *testing.T) {
 	// an empty byte array is also a valid key
 	t.Run("nil key", func(t *testing.T) {
-		testArt(t, []keyVal{
+		testArt(t, []keyVal[string]{
 			kv(nil, "k1"),
 			kv([]byte{0}, "k2"),
 		}, nil)
 	})
 	t.Run("empty key", func(t *testing.T) {
-		testArt(t, []keyVal{
+		testArt(t, []keyVal[string]{
 			kv([]byte{}, "k1"),
 			kv([]byte{0}, "k2"),
 		}, nil)
@@ -209,22 +210,23 @@ func Test_EmptyKey(t *testing.T) {
 }
 
 func Test_NilValue(t *testing.T) {
-	testArt(t, []keyVal{
-		kv([]byte{0, 0, 0}, nil),
-		kv([]byte{0, 0, 0, 1}, "3"),
-		kv([]byte{10}, nil),
+	three := "3"
+	testArt(t, []keyVal[*string]{
+		kv[*string]([]byte{0, 0, 0}, nil),
+		kv([]byte{0, 0, 0, 1}, &three),
+		kv[*string]([]byte{10}, nil),
 	}, nil)
 }
 
 func Test_NodeCompression(t *testing.T) {
-	testArt(t, []keyVal{
+	testArt(t, []keyVal[string]{
 		kvs("1234567", "1"),
 		kvs("1239000", "2"),
 	}, &Stats{Node4s: 1, Keys: 2})
 }
 
 func Test_LeafLazyExpansion(t *testing.T) {
-	testArt(t, []keyVal{
+	testArt(t, []keyVal[string]{
 		kvs("aaa", "foo"),
 		kvs("aaattt", "bar"),
 		kvs("aaatttxxx", "baz"),
@@ -232,7 +234,7 @@ func Test_LeafLazyExpansion(t *testing.T) {
 }
 
 func Test_Walk(t *testing.T) {
-	testArt(t, []keyVal{
+	testArt(t, []keyVal[string]{
 		kvs("C", "c"),
 		kvs("A", "a"),
 		kvs("AA", "aa"),
@@ -244,14 +246,14 @@ func Test_MoreWalk(t *testing.T) {
 	sizes := []int{2, 4, 5, 16, 17, 47, 48, 49, 50, 120, 255, 256}
 	for _, sz := range sizes {
 		t.Run(fmt.Sprintf("Walk size %d", sz), func(t *testing.T) {
-			a := new(Tree)
+			a := new(Tree[int])
 			baseK := []byte{'A'}
 			for i := 0; i < sz; i++ {
 				a.Put(append(baseK, byte(i)), i)
 			}
 			t.Run("Full Walk", func(t *testing.T) {
 				i := 0
-				a.Walk(func(k []byte, v interface{}) WalkState {
+				a.Walk(func(k []byte, v int) WalkState {
 					exp := append(baseK, byte(i))
 					if !bytes.Equal(k, exp) {
 						t.Errorf("Expecting key %v, but got %v", exp, k)
@@ -268,7 +270,7 @@ func Test_MoreWalk(t *testing.T) {
 			})
 			t.Run("Early Stop", func(t *testing.T) {
 				i := 0
-				a.Walk(func(k []byte, v interface{}) WalkState {
+				a.Walk(func(k []byte, v int) WalkState {
 					i++
 					if i >= sz-1 {
 						return Stop
@@ -281,7 +283,7 @@ func Test_MoreWalk(t *testing.T) {
 			})
 			t.Run("Stop After First Key", func(t *testing.T) {
 				i := 0
-				a.Walk(func(k []byte, v interface{}) WalkState {
+				a.Walk(func(k []byte, v int) WalkState {
 					i++
 					return Stop
 				})
@@ -295,7 +297,7 @@ func Test_MoreWalk(t *testing.T) {
 				}
 				calls := 0
 				prevKey := make([]byte, 0, 5)
-				a.Walk(func(k []byte, v interface{}) WalkState {
+				a.Walk(func(k []byte, v int) WalkState {
 					calls++
 					if bytes.Compare(prevKey, k) != -1 {
 						t.Errorf("Key %v received out of order, prevKey was %v", k, prevKey)
@@ -338,9 +340,9 @@ func (r *keyRange) String() string {
 }
 
 func Test_WalkRangeCompressedPath(t *testing.T) {
-	a := new(Tree)
-	s := kvStore{}
-	keyVals := []keyVal{
+	a := new(Tree[string])
+	s := kvStore[string]{}
+	keyVals := []keyVal[string]{
 		kv([]byte{2, 3, 4}, "1"),
 		kv([]byte{2, 3, 4, 5, 6, 7, 8}, "2"),
 		kv([]byte{2, 3, 4, 5, 6, 7, 9}, "3"),
@@ -363,8 +365,8 @@ func Test_WalkRangeCompressedPath(t *testing.T) {
 }
 
 func Test_WalkRange(t *testing.T) {
-	a := new(Tree)
-	s := kvStore{}
+	a := new(Tree[int])
+	s := kvStore[int]{}
 	for i := 1; i < 5; i++ {
 		for j := 1; j < 5; j++ {
 			e := kv([]byte{byte(i * 2), byte(1 + j*2), byte(2 + j*3)}, i*j*j)
@@ -388,8 +390,8 @@ func Test_WalkRange(t *testing.T) {
 	}
 }
 
-func testArt(t *testing.T, inserts []keyVal, expectedStats *Stats) {
-	deleters := []func([]keyVal) []keyVal{randDeleteOrder, deleteLongestFirst, deleteShortestFirst}
+func testArt[V comparable](t *testing.T, inserts []keyVal[V], expectedStats *Stats) {
+	deleters := []func([]keyVal[V]) []keyVal[V]{randDeleteOrder[V], deleteLongestFirst[V], deleteShortestFirst[V]}
 	names := []string{"random", "longest to shortest", "shortest to longest"}
 	for i := 0; i < len(deleters); i++ {
 		t.Run(fmt.Sprintf("normal/deletes %s", names[i]), func(t *testing.T) {
@@ -407,15 +409,15 @@ func testArt(t *testing.T, inserts []keyVal, expectedStats *Stats) {
 	}
 }
 
-func testArtOne(t *testing.T, inserts []keyVal, deleteOrderer func([]keyVal) []keyVal, expectedStats *Stats) {
-	a := new(Tree)
+func testArtOne[V comparable](t *testing.T, inserts []keyVal[V], deleteOrderer func([]keyVal[V]) []keyVal[V], expectedStats *Stats) {
+	a := new(Tree[V])
 	defer func() {
 		if t.Failed() {
 			t.Logf("tree\n%v", pretty(a))
 		}
 	}()
 
-	store := kvStore{}
+	store := kvStore[V]{}
 	for i := 0; i < len(inserts); i++ {
 		a.Put(inserts[i].key, inserts[i].val)
 		store.put(inserts[i])
@@ -479,12 +481,12 @@ func testArtOne(t *testing.T, inserts []keyVal, deleteOrderer func([]keyVal) []k
 	}
 }
 
-func testWalkRange(t *testing.T, a *Tree, s *kvStore, start, end []byte) {
+func testWalkRange[V comparable](t *testing.T, a *Tree[V], s *kvStore[V], start, end []byte) {
 	kr := keyRange{start, end}
 	t.Run(kr.String(), func(t *testing.T) {
 		exp := s.orderedRange(start, end)
 		idx := 0
-		a.WalkRange(start, end, func(k []byte, v interface{}) WalkState {
+		a.WalkRange(start, end, func(k []byte, v V) WalkState {
 			if len(exp) == 0 {
 				t.Errorf("received more keys than expecting, additional key/val is %v : %v", k, v)
 			} else {
@@ -524,24 +526,24 @@ func addBytes(v []byte, add byte) []byte {
 	return append([]byte{1}, res...)
 }
 
-func randDeleteOrder(i []keyVal) []keyVal {
-	deletes := append([]keyVal{}, i...)
+func randDeleteOrder[V any](i []keyVal[V]) []keyVal[V] {
+	deletes := append([]keyVal[V]{}, i...)
 	rnd.Shuffle(len(deletes), func(i, j int) {
 		deletes[i], deletes[j] = deletes[j], deletes[i]
 	})
 	return deletes
 }
 
-func deleteLongestFirst(i []keyVal) []keyVal {
-	deletes := append([]keyVal{}, i...)
+func deleteLongestFirst[V any](i []keyVal[V]) []keyVal[V] {
+	deletes := append([]keyVal[V]{}, i...)
 	sort.Slice(deletes, func(i, j int) bool {
 		return len(deletes[j].key) < len(deletes[i].key)
 	})
 	return deletes
 }
 
-func deleteShortestFirst(i []keyVal) []keyVal {
-	deletes := append([]keyVal{}, i...)
+func deleteShortestFirst[V any](i []keyVal[V]) []keyVal[V] {
+	deletes := append([]keyVal[V]{}, i...)
 	sort.Slice(deletes, func(i, j int) bool {
 		return len(deletes[i].key) < len(deletes[j].key)
 	})
@@ -559,12 +561,12 @@ func rndKey() []byte {
 
 var rnd = rand.New(rand.NewSource(42))
 
-type keyVal struct {
+type keyVal[V any] struct {
 	key []byte
-	val interface{}
+	val V
 }
 
-func kvList(l []keyVal) string {
+func kvList[V any](l []keyVal[V]) string {
 	b := &strings.Builder{}
 	for _, x := range l {
 		b.WriteString(x.String())
@@ -573,19 +575,19 @@ func kvList(l []keyVal) string {
 	return b.String()
 }
 
-func (kv keyVal) String() string {
+func (kv keyVal[V]) String() string {
 	return fmt.Sprintf("[k:%s v:%v]", hexPath(kv.key), kv.val)
 }
 
-func kv(k []byte, v interface{}) keyVal {
-	return keyVal{key: k, val: v}
+func kv[V any](k []byte, v V) keyVal[V] {
+	return keyVal[V]{key: k, val: v}
 }
-func kvs(k string, v interface{}) keyVal {
-	return keyVal{key: []byte(k), val: v}
+func kvs[V any](k string, v V) keyVal[V] {
+	return keyVal[V]{key: []byte(k), val: v}
 }
 
-func reverse(kv []keyVal) []keyVal {
-	c := make([]keyVal, len(kv))
+func reverse[V any](kv []keyVal[V]) []keyVal[V] {
+	c := make([]keyVal[V], len(kv))
 	j := len(kv) - 1
 	for i := 0; i < len(kv); i++ {
 		c[j] = kv[i]
@@ -594,11 +596,11 @@ func reverse(kv []keyVal) []keyVal {
 	return c
 }
 
-func hasKeyVals(t *testing.T, a *Tree, exp []keyVal) {
+func hasKeyVals[V comparable](t *testing.T, a *Tree[V], exp []keyVal[V]) {
 	t.Helper()
 	// verifies that the tree matches the supplied set of kv's by using the Walk fn
 	i := 0
-	a.Walk(func(k []byte, v interface{}) WalkState {
+	a.Walk(func(k []byte, v V) WalkState {
 		if i >= len(exp) {
 			t.Errorf("Got more callbacks than expected, additional k/v is %v / %v", k, v)
 		} else {
@@ -629,11 +631,11 @@ func hasKeyVals(t *testing.T, a *Tree, exp []keyVal) {
 
 // kvStore is a really simple store that tracks keys & values. Its used to
 // generate the expected key/values in the tree during tests.
-type kvStore struct {
-	kvs []keyVal
+type kvStore[V any] struct {
+	kvs []keyVal[V]
 }
 
-func (s *kvStore) put(kv keyVal) {
+func (s *kvStore[V]) put(kv keyVal[V]) {
 	for i := 0; i < len(s.kvs); i++ {
 		if bytes.Equal(kv.key, s.kvs[i].key) {
 			s.kvs[i].val = kv.val
@@ -643,7 +645,7 @@ func (s *kvStore) put(kv keyVal) {
 	s.kvs = append(s.kvs, kv)
 }
 
-func (s *kvStore) delete(k []byte) {
+func (s *kvStore[V]) delete(k []byte) {
 	for i := 0; i < len(s.kvs); i++ {
 		if bytes.Equal(k, s.kvs[i].key) {
 			s.kvs[i] = s.kvs[len(s.kvs)-1]
@@ -653,17 +655,18 @@ func (s *kvStore) delete(k []byte) {
 	}
 }
 
-func (s *kvStore) get(k []byte) (val interface{}, exists bool) {
+func (s *kvStore[V]) get(k []byte) (val V, exists bool) {
 	for i := 0; i < len(s.kvs); i++ {
 		if bytes.Equal(k, s.kvs[i].key) {
 			return s.kvs[i].val, true
 		}
 	}
-	return nil, false
+	var zero V
+	return zero, false
 }
 
 // ordered returns the contents of the store in key order
-func (s *kvStore) ordered() []keyVal {
+func (s *kvStore[V]) ordered() []keyVal[V] {
 	sort.Slice(s.kvs, func(i, j int) bool {
 		return bytes.Compare(s.kvs[i].key, s.kvs[j].key) == -1
 	})
@@ -672,9 +675,9 @@ func (s *kvStore) ordered() []keyVal {
 
 // orderedRange returns the keyVals that are between the supplied start,end
 // values, using the same semantics as WalkRange.
-func (s *kvStore) orderedRange(start, end []byte) []keyVal {
+func (s *kvStore[V]) orderedRange(start, end []byte) []keyVal[V] {
 	sorted := s.ordered()
-	rng := make([]keyVal, 0, 10)
+	rng := make([]keyVal[V], 0, 10)
 	for _, kv := range sorted {
 		if (len(start) == 0 || bytes.Compare(kv.key, start) >= 0) && (len(end) == 0 || bytes.Compare(kv.key, end) == -1) {
 			rng = append(rng, kv)
@@ -683,7 +686,7 @@ func (s *kvStore) orderedRange(start, end []byte) []keyVal {
 	return rng
 }
 
-func pretty(a *Tree) string {
+func pretty[V any](a *Tree[V]) string {
 	tree := &strings.Builder{}
 	a.PrettyPrint(tree)
 	return tree.String()

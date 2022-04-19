@@ -7,21 +7,21 @@ import (
 // index into the children arrays for the node value leaf.
 const n16ValueIdx = 15
 
-type node16 struct {
+type node16[V any] struct {
 	nodeHeader
 	key      [16]byte
-	children [16]node
+	children [16]node[V]
 }
 
 // constructs a new node16 from another node
-func newNode16(src node) *node16 {
-	n := node16{nodeHeader: src.header()}
+func newNode16[V any](src node[V]) *node16[V] {
+	n := node16[V]{nodeHeader: src.header()}
 	if n.hasValue {
 		n.children[n16ValueIdx] = src.valueNode()
 	}
 	idx := 0
 	// iterateChildren iterates in key order, which simplifies this
-	src.iterateChildren(func(k byte, cn node) WalkState {
+	src.iterateChildren(func(k byte, cn node[V]) WalkState {
 		n.key[idx] = k
 		n.children[idx] = cn
 		idx++
@@ -30,19 +30,19 @@ func newNode16(src node) *node16 {
 	return &n
 }
 
-func (n *node16) header() nodeHeader {
+func (n *node16[V]) header() nodeHeader {
 	return n.nodeHeader
 }
 
-func (n *node16) keyPath() *keyPath {
+func (n *node16[V]) keyPath() *keyPath {
 	return &n.path
 }
 
-func (n *node16) grow() node {
-	return newNode48(n)
+func (n *node16[V]) grow() node[V] {
+	return newNode48[V](n)
 }
 
-func (n *node16) canAddChild() bool {
+func (n *node16[V]) canAddChild() bool {
 	max := int16(len(n.key))
 	if n.hasValue {
 		max--
@@ -50,7 +50,7 @@ func (n *node16) canAddChild() bool {
 	return n.childCount < max
 }
 
-func (n *node16) addChildNode(key byte, child node) {
+func (n *node16[V]) addChildNode(key byte, child node[V]) {
 	// keep key ordered
 	slot, exists := n.findInsertionPoint(key)
 	if exists {
@@ -63,7 +63,7 @@ func (n *node16) addChildNode(key byte, child node) {
 	n.nodeHeader.childCount++
 }
 
-func (n *node16) findInsertionPoint(key byte) (idx int, exists bool) {
+func (n *node16[V]) findInsertionPoint(key byte) (idx int, exists bool) {
 	count := int(n.childCount)
 	_ = n.key[count-1]
 	for i := count - 1; i >= 0; i-- {
@@ -76,23 +76,23 @@ func (n *node16) findInsertionPoint(key byte) (idx int, exists bool) {
 	}
 	return 0, false
 }
-func (n *node16) canSetNodeValue() bool {
+func (n *node16[V]) canSetNodeValue() bool {
 	return int(n.childCount) < len(n.key)
 }
 
-func (n *node16) setNodeValue(v *leaf) {
+func (n *node16[V]) setNodeValue(v *leaf[V]) {
 	n.children[n16ValueIdx] = v
 	n.hasValue = true
 }
 
-func (n *node16) valueNode() *leaf {
+func (n *node16[V]) valueNode() *leaf[V] {
 	if n.hasValue {
-		return n.children[n16ValueIdx].(*leaf)
+		return n.children[n16ValueIdx].(*leaf[V])
 	}
 	return nil
 }
 
-func (n *node16) iterateChildren(cb nodeConsumer) WalkState {
+func (n *node16[V]) iterateChildren(cb func(k byte, n node[V]) WalkState) WalkState {
 	for i := 0; i < int(n.childCount); i++ {
 		if cb(n.key[i], n.children[i]) == Stop {
 			return Stop
@@ -101,7 +101,7 @@ func (n *node16) iterateChildren(cb nodeConsumer) WalkState {
 	return Continue
 }
 
-func (n *node16) iterateChildrenRange(start, end int, cb nodeConsumer) WalkState {
+func (n *node16[V]) iterateChildrenRange(start, end int, cb func(k byte, n node[V]) WalkState) WalkState {
 	for i := 0; i < int(n.childCount); i++ {
 		k := int(n.key[i])
 		if k < start {
@@ -117,13 +117,13 @@ func (n *node16) iterateChildrenRange(start, end int, cb nodeConsumer) WalkState
 	return Continue
 }
 
-func (n *node16) removeValue() node {
+func (n *node16[V]) removeValue() node[V] {
 	n.children[n16ValueIdx] = nil
 	n.hasValue = false
 	return n
 }
 
-func (n *node16) removeChild(k byte) {
+func (n *node16[V]) removeChild(k byte) {
 	// keep key ordered
 	idx, exists := n.findInsertionPoint(k)
 	if !exists {
@@ -136,14 +136,14 @@ func (n *node16) removeChild(k byte) {
 	n.childCount--
 }
 
-func (n *node16) shrink() node {
+func (n *node16[V]) shrink() node[V] {
 	if n.childCount <= 2 {
-		return newNode4(n)
+		return newNode4[V](n)
 	}
 	return n
 }
 
-func (n *node16) getChildNode(key []byte) *node {
+func (n *node16[V]) getChildNode(key []byte) *node[V] {
 	// see https://www.superfell.com/weblog/2021/01/it-depends-episode-1
 	// and https://www.superfell.com/weblog/2021/01/it-depends-episode-2
 	// for a detailed discussion around looping vs binary search
@@ -156,11 +156,11 @@ func (n *node16) getChildNode(key []byte) *node {
 	return nil
 }
 
-func (n *node16) pretty(indent int, w writer) {
-	writeNode(n, "n16", indent, w)
+func (n *node16[V]) pretty(indent int, w writer) {
+	writeNode[V](n, "n16", indent, w)
 }
 
-func (n *node16) stats(s *Stats) {
+func (n *node16[V]) stats(s *Stats) {
 	s.Node16s++
 	if n.hasValue {
 		n.children[n16ValueIdx].stats(s)
