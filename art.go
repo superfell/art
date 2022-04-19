@@ -150,7 +150,7 @@ func (a *Tree[V]) walk(n node[V], prefix []byte, callback func(key []byte, value
 
 // WalkRange will call the provided callback function with each key/value pair, in key order.
 // keys will be limited to those equal to or greater than start and less than end. So its inclusive
-// of start, and exclusive of send.
+// of start, and exclusive of end.
 // nil can used to mean no limit in that direction. e.g. WalkRange(nil,nil,cb) is the same as
 // WalkRange(cb). WalkRange([]byte{1}, nil, cb) will wall all that are equal to or greater than [1]
 // WalkRange([]byte{1}, []byte{2},cb) will walk all keys with a prefix of [1].
@@ -166,7 +166,7 @@ func (a *Tree[V]) WalkRange(start []byte, end []byte, callback func(key []byte, 
 	a.walkStart(a.root, make([]byte, 0, 32), keyLimit{start, 0}, cmpEnd, callback)
 }
 
-func (a *Tree[V]) walkStart(n node[V], current []byte, start, end keyLimit, callback func(key []byte, value V)WalkState) WalkState {
+func (a *Tree[V]) walkStart(n node[V], current []byte, start, end keyLimit, callback func(key []byte, value V) WalkState) WalkState {
 	h := n.header()
 	for _, k := range h.path.asSlice() {
 		start.cmpSegment(k)

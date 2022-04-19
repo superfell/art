@@ -2,8 +2,6 @@ package art
 
 import "fmt"
 
-var emptyPath [24]byte
-
 type leaf[V any] struct {
 	value V
 	path  keyPath

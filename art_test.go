@@ -123,7 +123,7 @@ func Test_SetValueOnExistingNode(t *testing.T) {
 		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
 			inserts := []keyVal[string]{}
 			for i := 0; i < tc.children; i++ {
-				inserts = append(inserts, kv([]byte{1, byte(i)},strconv.Itoa(i)))
+				inserts = append(inserts, kv([]byte{1, byte(i)}, strconv.Itoa(i)))
 			}
 			inserts = append(inserts, kv([]byte{1}, "value"))
 			testArt(t, inserts, tc.stats)
@@ -171,13 +171,13 @@ func Test_CompressedPathLargerThan24(t *testing.T) {
 }
 
 func Test_GrowWithPrefixValue(t *testing.T) {
-	keyVals := []keyVal[any]{
-		kvs[any]("BBB", "kk"),
-		kvs[any]("B", "k"),
-		kvs[any]("BBx", 100),
+	keyVals := []keyVal[int]{
+		kvs("BBB", 1010),
+		kvs("B", 505),
+		kvs("BBx", 5555),
 	}
 	for i := 0; i < 256; i++ {
-		keyVals = append(keyVals, kv[any]([]byte{'B', byte(i)}, i))
+		keyVals = append(keyVals, kv([]byte{'B', byte(i)}, i))
 	}
 	testArt(t, keyVals, &Stats{Node256s: 1, Node4s: 1, Keys: 259})
 }
@@ -210,10 +210,11 @@ func Test_EmptyKey(t *testing.T) {
 }
 
 func Test_NilValue(t *testing.T) {
-	testArt(t, []keyVal[any]{
-		kv[any]([]byte{0, 0, 0}, nil),
-		kv[any]([]byte{0, 0, 0, 1}, "3"),
-		kv[any]([]byte{10}, nil),
+	three := "3"
+	testArt(t, []keyVal[*string]{
+		kv[*string]([]byte{0, 0, 0}, nil),
+		kv([]byte{0, 0, 0, 1}, &three),
+		kv[*string]([]byte{10}, nil),
 	}, nil)
 }
 
