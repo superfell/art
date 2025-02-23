@@ -68,9 +68,18 @@ func Test_GrowNode(t *testing.T) {
 		// test that the node is grown to the relevant type
 		{1, &Stats{Keys: 1}},
 		{2, &Stats{Node4s: 1, Keys: 2}},
-		{12, &Stats{Node16s: 1, Keys: 12}},
+		{3, &Stats{Node4s: 1, Keys: 3}},
+		{4, &Stats{Node4s: 1, Keys: 4}},
+		{5, &Stats{Node16s: 1, Keys: 5}},
+		{14, &Stats{Node16s: 1, Keys: 14}},
+		{15, &Stats{Node16s: 1, Keys: 15}},
+		{16, &Stats{Node16s: 1, Keys: 16}},
+		{17, &Stats{Node48s: 1, Keys: 17}},
 		{40, &Stats{Node48s: 1, Keys: 40}},
+		{48, &Stats{Node48s: 1, Keys: 48}},
+		{49, &Stats{Node256s: 1, Keys: 49}},
 		{200, &Stats{Node256s: 1, Keys: 200}},
+		{256, &Stats{Node256s: 1, Keys: 256}},
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("children %d", tc.children), func(t *testing.T) {
