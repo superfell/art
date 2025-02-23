@@ -131,9 +131,9 @@ func (n *node16[V]) removeChild(k byte) {
 	}
 	copy(n.key[idx:], n.key[idx+1:int(n.childCount)])
 	copy(n.children[idx:], n.children[idx+1:int(n.childCount)])
+	n.childCount--
 	n.key[int(n.childCount)] = 0
 	n.children[int(n.childCount)] = nil
-	n.childCount--
 }
 
 func (n *node16[V]) shrink() node[V] {
